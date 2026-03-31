@@ -317,7 +317,7 @@ class TestLLMJudge:
         )
         result = await judge.evaluate(self._make_case(), failed_response)
         assert not result.passed
-        assert result.scores[0].score == 1.0  # min score
+        assert result.scores[0].score == 0.0  # zero score on failure
         assert "crashed" in result.scores[0].explanation.lower()
 
     @pytest.mark.asyncio
