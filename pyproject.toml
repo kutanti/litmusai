@@ -39,6 +39,7 @@ dev = [
     "pytest-asyncio>=0.21",
     "ruff>=0.1",
     "mypy>=1.0",
+    "types-PyYAML>=6.0",
     "pre-commit>=3.0",
 ]
 langchain = ["langchain>=0.1"]

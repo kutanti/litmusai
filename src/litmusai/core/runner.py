@@ -5,15 +5,13 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
 from litmusai.core.agent import Agent, AgentResponse
-from litmusai.core.suite import TestSuite, TestCase
 from litmusai.core.scorer import Scorer, ScoreResult
-
+from litmusai.core.suite import TestCase, TestSuite
 
 console = Console()
 

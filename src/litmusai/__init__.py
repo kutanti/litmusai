@@ -3,10 +3,10 @@
 __version__ = "0.1.0"
 
 from litmusai.core.agent import Agent
-from litmusai.core.suite import TestSuite
-from litmusai.core.runner import evaluate, compare
-from litmusai.core.scorer import Scorer
 from litmusai.core.reporter import Reporter
+from litmusai.core.runner import compare, evaluate
+from litmusai.core.scorer import Scorer
+from litmusai.core.suite import TestSuite
 
 __all__ = [
     "Agent",

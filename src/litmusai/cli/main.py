@@ -64,7 +64,6 @@ def init() -> None:
 @click.option("--format", "fmt", default="table", type=click.Choice(["table", "json", "markdown"]))
 def run(suite: str, agent: str, concurrency: int, output: str | None, fmt: str) -> None:
     """Run evaluation against a test suite."""
-    import asyncio
 
     console.print(f"🧪 Running suite [bold]{suite}[/bold] with agent [bold]{agent}[/bold]...")
     console.print("[dim]This is a preview — full evaluation engine coming soon![/dim]")

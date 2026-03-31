@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any
 
 import httpx
 
@@ -19,7 +20,7 @@ class AgentResponse:
     tokens_used: int = 0
     model: str = ""
     success: bool = True
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class Agent:
@@ -27,7 +28,7 @@ class Agent:
 
     def __init__(
         self,
-        fn: Callable,
+        fn: Callable[..., Any],
         name: str = "agent",
         model: str = "",
         metadata: dict[str, Any] | None = None,
@@ -57,10 +58,10 @@ class Agent:
                 return AgentResponse(output=result, latency_ms=elapsed, model=self.model)
             elif isinstance(result, dict):
                 return AgentResponse(
-                    output=result.get("output", str(result)),
-                    cost=result.get("cost", 0.0),
-                    tokens_used=result.get("tokens_used", 0),
-                    model=result.get("model", self.model),
+                    output=str(result.get("output", str(result))),
+                    cost=float(result.get("cost", 0.0)),
+                    tokens_used=int(result.get("tokens_used", 0)),
+                    model=str(result.get("model", self.model)),
                     latency_ms=elapsed,
                     metadata=result,
                 )
@@ -78,7 +79,7 @@ class Agent:
             )
 
     @classmethod
-    def from_function(cls, fn: Callable, name: str = "agent", model: str = "") -> Agent:
+    def from_function(cls, fn: Callable[..., Any], name: str = "agent", model: str = "") -> Agent:
         """Create an agent from a simple function."""
         return cls(fn=fn, name=name, model=model)
 
@@ -90,7 +91,7 @@ class Agent:
                 response = await client.post(url, json={"task": task, **kwargs})
                 response.raise_for_status()
                 data = response.json()
-                return data.get("output", data.get("response", str(data)))
+                return str(data.get("output", data.get("response", str(data))))
 
         return cls(fn=http_fn, name=name, model=model)
 
@@ -99,7 +100,7 @@ class Agent:
         """Create a LitmusAI agent from a LangChain agent."""
         async def langchain_fn(task: str, **kwargs: Any) -> str:
             result = await agent.ainvoke({"input": task, **kwargs})
-            return result.get("output", str(result))
+            return str(result.get("output", str(result)))
 
         return cls(fn=langchain_fn, name=name)
 

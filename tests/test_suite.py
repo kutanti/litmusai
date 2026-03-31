@@ -1,9 +1,8 @@
 """Tests for the TestSuite class."""
 
-import pytest
 import tempfile
-from pathlib import Path
-from litmusai.core.suite import TestSuite, TestCase
+
+from litmusai.core.suite import TestSuite
 
 
 class TestTestSuite:

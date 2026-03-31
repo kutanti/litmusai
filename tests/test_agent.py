@@ -1,7 +1,8 @@
 """Tests for the Agent class."""
 
 import pytest
-from litmusai.core.agent import Agent, AgentResponse
+
+from litmusai.core.agent import Agent
 
 
 def simple_agent(task: str) -> str:

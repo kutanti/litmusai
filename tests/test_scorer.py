@@ -1,8 +1,7 @@
 """Tests for the Scorer class."""
 
-import pytest
-from litmusai.core.scorer import Scorer
 from litmusai.core.agent import AgentResponse
+from litmusai.core.scorer import Scorer
 from litmusai.core.suite import TestCase
 
 

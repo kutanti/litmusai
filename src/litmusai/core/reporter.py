@@ -9,7 +9,6 @@ from typing import Any
 from rich.console import Console
 from rich.table import Table
 
-
 console = Console()
 
 
@@ -85,13 +84,13 @@ class Reporter:
             f"# 🧪 LitmusAI Report — {results.suite_name}",
             f"\n**Agent:** {results.agent_name}",
             f"**Date:** {results.timestamp}",
-            f"\n## Summary",
+            "\n## Summary",
             f"- ✅ Passed: {results.passed}/{len(results.results)}",
             f"- ❌ Failed: {results.failed}",
             f"- 📊 Pass Rate: {results.pass_rate:.0%}",
             f"- 💰 Total Cost: ${results.total_cost:.4f}",
             f"- ⚡ Avg Latency: {results.avg_latency_ms:.0f}ms",
-            f"\n## Results\n",
+            "\n## Results\n",
             "| # | Test | Status | Latency | Cost |",
             "|---|------|--------|---------|------|",
         ]

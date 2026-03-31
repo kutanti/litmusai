@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
+import yaml
 
 
 @dataclass
@@ -14,7 +15,7 @@ class TestCase:
     id: str
     name: str
     task: str
-    expected: Optional[str] = None
+    expected: str | None = None
     expected_contains: list[str] = field(default_factory=list)
     expected_not_contains: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
