@@ -21,17 +21,23 @@ All adapters normalize outputs to `AgentResponse`:
 ```python
 @dataclass
 class AgentResponse:
-    output: str              # The agent's final text output
-    cost: float              # Estimated cost in USD
-    latency_ms: float        # Execution time in milliseconds
-    tokens_used: int         # Total tokens consumed
-    input_tokens: int        # Input/prompt tokens
-    output_tokens: int       # Output/completion tokens
-    model: str               # The LLM model used
+    output: str                  # The agent's final text output
+    metadata: dict[str, Any]     # Arbitrary metadata from the run
+    cost: float                  # Estimated cost in USD
+    latency_ms: float            # Execution time in milliseconds
+    tokens_used: int             # Total tokens consumed
+    input_tokens: int            # Input/prompt tokens
+    output_tokens: int           # Output/completion tokens
+    model: str                   # The LLM model used
     tool_calls: list[ToolCall]   # Tools/functions called
     steps: list[AgentStep]       # Reasoning steps taken
-    success: bool            # Whether execution succeeded
-    error: str | None        # Error message if failed
+    success: bool                # Whether execution succeeded
+    error: str | None            # Error message if failed
+
+    # Properties
+    total_tokens: int            # input_tokens + output_tokens
+    num_steps: int               # len(steps)
+    num_tool_calls: int          # Total tool calls across all steps
 ```
 
 ## Adapters in Detail

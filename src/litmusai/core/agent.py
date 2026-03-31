@@ -3,14 +3,18 @@
 This module provides a universal Agent class that normalizes different
 agent frameworks into a single interface for evaluation.
 
-Supported frameworks:
+Built-in adapters:
     - Simple Python functions (sync/async)
     - HTTP endpoints (REST APIs)
-    - LangChain agents
+    - CLI-based agents (subprocess)
+    - LangChain agents/chains
     - CrewAI crews
     - OpenAI Agents SDK
-    - CLI-based agents (subprocess)
-    - Custom adapters via Agent protocol
+    - Any callable object
+
+Additional adapters (AutoGen, OpenClaw, etc.) can be added using
+the from_function() or from_callable() escape hatches, or by
+contributing new adapters to the project.
 """
 
 from __future__ import annotations
@@ -147,9 +151,7 @@ class Agent:
             if asyncio.iscoroutinefunction(self.fn):
                 result = await self.fn(task, **kwargs)
             else:
-                result = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: self.fn(task, **kwargs)
-                )
+                result = await asyncio.to_thread(self.fn, task, **kwargs)
 
             elapsed = (time.monotonic() - start) * 1000
 
@@ -202,6 +204,12 @@ class Agent:
                     thought=str(step.get("thought", "")),
                 ))
 
+        excluded_keys = {
+            "output", "cost", "tokens_used", "input_tokens",
+            "output_tokens", "model", "tool_calls", "steps",
+            "success", "error",
+        }
+
         return AgentResponse(
             output=str(result.get("output", str(result))),
             cost=float(result.get("cost", 0.0)),
@@ -210,9 +218,10 @@ class Agent:
             output_tokens=int(result.get("output_tokens", 0)),
             model=str(result.get("model", self.model)),
             latency_ms=elapsed,
+            success=bool(result.get("success", True)),
+            error=result.get("error"),
             metadata={k: v for k, v in result.items()
-                      if k not in {"output", "cost", "tokens_used", "input_tokens",
-                                   "output_tokens", "model", "tool_calls", "steps"}},
+                      if k not in excluded_keys},
             tool_calls=tool_calls,
             steps=steps,
         )
@@ -323,19 +332,30 @@ class Agent:
             name: Display name for the agent.
             model: The model being used (for reporting).
             timeout: Command timeout in seconds.
-            shell: Whether to run via shell.
+            shell: Whether to run via shell. If False, command is split
+                   using shlex and executed directly.
 
         Example:
             >>> agent = Agent.from_cli("python my_agent.py")
             >>> agent = Agent.from_cli("node agent.js", name="js-agent")
         """
         async def cli_fn(task: str, **kwargs: Any) -> dict[str, Any]:
-            proc = await asyncio.create_subprocess_shell(
-                command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            if shell:
+                proc = await asyncio.create_subprocess_shell(
+                    command,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            else:
+                import shlex
+                args = shlex.split(command)
+                proc = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(input=task.encode()),
                 timeout=timeout,
@@ -381,8 +401,8 @@ class Agent:
             if hasattr(agent, "ainvoke"):
                 result = await agent.ainvoke({"input": task, **kwargs})
             elif hasattr(agent, "invoke"):
-                result = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: agent.invoke({"input": task, **kwargs})
+                result = await asyncio.to_thread(
+                    agent.invoke, {"input": task, **kwargs}
                 )
             else:
                 raise TypeError(

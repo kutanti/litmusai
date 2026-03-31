@@ -233,7 +233,9 @@ class TestCLIAdapter:
         agent = Agent.from_cli("false", name="fail-agent")
         response = await agent.run("test")
         # 'false' command returns exit code 1
-        assert not response.success or response.output == ""
+        assert not response.success
+        assert response.error
+        assert response.output == ""
 
     @pytest.mark.asyncio
     async def test_from_cli_python(self):
