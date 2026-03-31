@@ -442,6 +442,18 @@ class LLMJudge:
                 f"got {pass_threshold}"
             )
 
+        # Validate inputs
+        if score_range[0] >= score_range[1]:
+            raise ValueError(
+                f"score_range min ({score_range[0]}) must be less than "
+                f"max ({score_range[1]})"
+            )
+        if not 0.0 <= pass_threshold <= 1.0:
+            raise ValueError(
+                f"pass_threshold must be between 0.0 and 1.0, "
+                f"got {pass_threshold}"
+            )
+
         self.model = model
         self.score_range = score_range
         self.pass_threshold = pass_threshold

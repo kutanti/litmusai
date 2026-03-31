@@ -584,3 +584,87 @@ class TestProviders:
         provider = FunctionProvider(async_fn)
         result = await provider.complete("hello")
         assert result == "async: hello"
+
+
+# ─── Test Validation & Edge Cases ──────────────────────────────────
+
+
+class TestValidation:
+    def test_invalid_score_range(self):
+        with pytest.raises(ValueError, match="score_range"):
+            LLMJudge(
+                model="mock",
+                score_range=(10, 1),
+                provider=FunctionProvider(mock_llm_response),
+            )
+
+    def test_invalid_pass_threshold_high(self):
+        with pytest.raises(ValueError, match="pass_threshold"):
+            LLMJudge(
+                model="mock",
+                pass_threshold=1.5,
+                provider=FunctionProvider(mock_llm_response),
+            )
+
+    def test_invalid_pass_threshold_low(self):
+        with pytest.raises(ValueError, match="pass_threshold"):
+            LLMJudge(
+                model="mock",
+                pass_threshold=-0.1,
+                provider=FunctionProvider(mock_llm_response),
+            )
+
+    @pytest.mark.asyncio
+    async def test_extract_json_stray_brace(self):
+        """Ensure stray closing braces before the JSON don't break extraction."""
+
+        def mock_with_stray_brace(prompt: str) -> str:
+            return '} some text } {"scores": {"correctness": {"score": 8, "explanation": "Good"}}}'
+
+        judge = LLMJudge(
+            model="mock",
+            criteria={"correctness": "Correct?"},
+            provider=FunctionProvider(mock_with_stray_brace),
+        )
+
+        case = TestCase(id="t", name="t", task="test")
+        response = AgentResponse(output="answer", success=True)
+        result = await judge.evaluate(case, response)
+        assert result.scores[0].score == 8.0
+
+    @pytest.mark.asyncio
+    async def test_score_from_async_context(self):
+        """Ensure sync score() works when called inside a running event loop."""
+        judge = LLMJudge(
+            model="mock",
+            criteria={"correctness": "Correct?", "completeness": "Complete?"},
+            provider=FunctionProvider(mock_llm_response),
+        )
+
+        case = TestCase(id="t", name="t", task="What is 2+2?", expected="4")
+        response = AgentResponse(output="4", success=True)
+
+        # This is called from within an async test (running event loop)
+        sr = judge.score(case, response)
+        assert sr.passed or not sr.passed  # Doesn't raise RuntimeError
+        assert sr.score >= 0.0
+
+    @pytest.mark.asyncio
+    async def test_provider_error_handling(self):
+        """Provider exceptions should return failed JudgeResult, not raise."""
+
+        async def failing_provider(prompt: str) -> str:
+            raise ConnectionError("Network unreachable")
+
+        judge = LLMJudge(
+            model="mock",
+            criteria={"correctness": "Correct?"},
+            provider=FunctionProvider(failing_provider),
+        )
+
+        case = TestCase(id="t", name="t", task="test")
+        response = AgentResponse(output="answer", success=True)
+        result = await judge.evaluate(case, response)
+        assert not result.passed
+        assert result.overall_score == 0.0
+        assert "Network unreachable" in result.scores[0].explanation
