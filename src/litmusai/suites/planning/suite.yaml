@@ -1,0 +1,42 @@
+name: planning
+description: Multi-step reasoning and task decomposition
+
+cases:
+  - id: plan_001
+    name: "Task decomposition"
+    task: "Break down the task of 'launching a new SaaS product' into 5-7 actionable steps."
+    expected_contains:
+      - "1"
+      - "2"
+      - "3"
+    tags: ["decomposition", "planning"]
+
+  - id: plan_002
+    name: "Priority ordering"
+    task: "You have these tasks: fix critical production bug, update documentation, plan Q2 roadmap, respond to customer email. Order them by priority and explain why."
+    expected_contains:
+      - "bug"
+      - "priority"
+    tags: ["prioritization"]
+
+  - id: plan_003
+    name: "Dependency analysis"
+    task: "I want to build a web app with user auth, payment processing, and a dashboard. What should I build first and why? Identify dependencies."
+    expected_contains:
+      - "auth"
+    tags: ["dependencies", "architecture"]
+
+  - id: plan_004
+    name: "Resource estimation"
+    task: "Estimate how long it would take a solo developer to build an MVP of a todo app with React frontend and Python backend. Break it down by component."
+    expected_contains:
+      - "frontend"
+      - "backend"
+    tags: ["estimation", "planning"]
+
+  - id: plan_005
+    name: "Risk assessment"
+    task: "What are the top 3 risks of migrating a monolithic application to microservices? How would you mitigate each?"
+    expected_contains:
+      - "risk"
+    tags: ["risk", "architecture"]
