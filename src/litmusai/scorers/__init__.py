@@ -37,7 +37,14 @@ class LLMProvider:
 
 
 class OpenAIProvider(LLMProvider):
-    """OpenAI-compatible provider (works with OpenAI, Azure, LiteLLM, etc.)."""
+    """OpenAI-compatible provider.
+
+    Works with any OpenAI-compatible API gateway (OpenAI, LiteLLM,
+    vLLM, Ollama, etc.) that accepts Bearer token auth and the
+    /chat/completions endpoint. For Azure OpenAI, use the
+    ``base_url`` set to your deployment endpoint and pass your
+    Azure API key — or use a dedicated Azure provider.
+    """
 
     def __init__(
         self,
@@ -423,6 +430,18 @@ class LLMJudge:
             provider: Custom LLMProvider instance.
             cache: Whether to cache scores (reduces cost).
         """
+        # Validate inputs
+        if score_range[0] >= score_range[1]:
+            raise ValueError(
+                f"score_range min ({score_range[0]}) must be less than "
+                f"max ({score_range[1]})"
+            )
+        if not 0.0 <= pass_threshold <= 1.0:
+            raise ValueError(
+                f"pass_threshold must be between 0.0 and 1.0, "
+                f"got {pass_threshold}"
+            )
+
         self.model = model
         self.score_range = score_range
         self.pass_threshold = pass_threshold
@@ -595,12 +614,13 @@ Respond ONLY with the JSON object, no additional text."""
                     start = i
                 depth += 1
             elif ch == "}":
-                depth -= 1
-                if depth == 0 and start >= 0:
-                    try:
-                        return dict(json.loads(raw[start:i + 1]))
-                    except (json.JSONDecodeError, TypeError, ValueError):
-                        start = -1
+                if depth > 0:
+                    depth -= 1
+                    if depth == 0 and start >= 0:
+                        try:
+                            return dict(json.loads(raw[start:i + 1]))
+                        except (json.JSONDecodeError, TypeError, ValueError):
+                            start = -1
 
         return None
 
@@ -672,14 +692,26 @@ Respond ONLY with the JSON object, no additional text."""
         return self._parse_judge_response(raw)
 
     def score(self, case: TestCase, response: AgentResponse) -> ScoreResult:
-        """Synchronous scoring interface (for non-async contexts only).
+        """Synchronous scoring interface.
 
-        For use within the async evaluation runner, prefer score_async().
-        This method is provided for simple scripts and testing.
+        Works both from sync contexts (uses asyncio.run) and from within
+        an already-running event loop (runs in a background thread).
+        For best performance in async code, prefer score_async() directly.
         """
         import asyncio
+        import concurrent.futures
 
-        result = asyncio.run(self.evaluate(case, response))
+        try:
+            asyncio.get_running_loop()
+            # Already in async context — run in a background thread
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                result = pool.submit(
+                    asyncio.run, self.evaluate(case, response)
+                ).result()
+        except RuntimeError:
+            # No running loop — safe to use asyncio.run
+            result = asyncio.run(self.evaluate(case, response))
+
         return result.to_score_result()
 
     async def score_async(

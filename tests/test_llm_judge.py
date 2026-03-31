@@ -453,6 +453,20 @@ class TestLLMJudge:
         assert sr.passed
 
     @pytest.mark.asyncio
+    async def test_score_sync_from_async_context(self):
+        """Ensure sync score() works when called inside a running event loop."""
+        judge = LLMJudge(
+            model="mock",
+            criteria={"correctness": "Correct?", "completeness": "Complete?"},
+            provider=FunctionProvider(mock_llm_response),
+        )
+
+        # This should NOT raise RuntimeError about asyncio.run()
+        sr = judge.score(self._make_case(), self._make_response())
+        assert sr.score == 0.75
+        assert sr.passed
+
+    @pytest.mark.asyncio
     async def test_score_range(self):
         def mock_custom_range(prompt: str) -> str:
             return json.dumps({
@@ -492,6 +506,56 @@ class TestLLMJudge:
         result = await judge.evaluate(self._make_case(), self._make_response())
         assert result.scores[0].score == 10.0  # Clamped to max
         assert result.scores[1].score == 1.0   # Clamped to min
+
+    def test_invalid_score_range(self):
+        with pytest.raises(ValueError, match="score_range min"):
+            LLMJudge(
+                model="mock",
+                score_range=(10, 1),
+                provider=FunctionProvider(mock_llm_response),
+            )
+
+    def test_invalid_pass_threshold(self):
+        with pytest.raises(ValueError, match="pass_threshold"):
+            LLMJudge(
+                model="mock",
+                pass_threshold=1.5,
+                provider=FunctionProvider(mock_llm_response),
+            )
+
+    @pytest.mark.asyncio
+    async def test_provider_error_handling(self):
+        async def failing_provider(prompt: str) -> str:
+            raise ConnectionError("Network unreachable")
+
+        judge = LLMJudge(
+            model="mock",
+            criteria={"correctness": "Correct?"},
+            provider=FunctionProvider(failing_provider),
+        )
+
+        result = await judge.evaluate(self._make_case(), self._make_response())
+        assert not result.passed
+        assert result.overall_score == 0.0
+        assert "Network unreachable" in result.scores[0].explanation
+
+    @pytest.mark.asyncio
+    async def test_stray_brace_before_json(self):
+        """JSON extraction handles stray '}' before the actual JSON."""
+        def mock_stray_brace(prompt: str) -> str:
+            return (
+                '} some garbage } {"scores": {"correctness":'
+                ' {"score": 8, "explanation": "Good"}}}'
+            )
+
+        judge = LLMJudge(
+            model="mock",
+            criteria={"correctness": "Correct?"},
+            provider=FunctionProvider(mock_stray_brace),
+        )
+
+        result = await judge.evaluate(self._make_case(), self._make_response())
+        assert result.scores[0].score == 8.0
 
 
 # ─── Test Providers ────────────────────────────────────────────────
