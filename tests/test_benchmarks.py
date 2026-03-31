@@ -70,6 +70,29 @@ class TestPricingDB:
         assert p.input_cost_per_m == 0.50
         assert p.provider == "custom"
 
+    def test_register_normalizes_to_lowercase(self):
+        register_pricing("My-Fancy-Model", 1.00, 2.00)
+        p = get_pricing("my-fancy-model")
+        assert p is not None
+
+    def test_register_negative_cost_raises(self):
+        with pytest.raises(ValueError, match="input_cost_per_m"):
+            register_pricing("bad-model", -1.0, 2.0)
+
+    def test_register_negative_output_cost_raises(self):
+        with pytest.raises(ValueError, match="output_cost_per_m"):
+            register_pricing("bad-model", 1.0, -2.0)
+
+    def test_register_empty_name_raises(self):
+        with pytest.raises(ValueError, match="model name"):
+            register_pricing("", 1.0, 2.0)
+
+    def test_get_empty_string_returns_none(self):
+        assert get_pricing("") is None
+
+    def test_get_whitespace_returns_none(self):
+        assert get_pricing("   ") is None
+
     def test_list_models(self):
         models = list_models()
         assert len(models) > 10
@@ -228,6 +251,13 @@ class TestCostTracker:
         assert isinstance(m, TaskMetrics)
         assert m.task_id == "t1"
         assert m.cost > 0
+
+    def test_no_model_no_pricing(self):
+        """CostTracker without a model should not pick up random pricing."""
+        t = CostTracker()
+        assert t.pricing is None
+        m = t.record("t1", input_tokens=1000, output_tokens=500, passed=True)
+        assert m.cost == 0.0
 
 
 # ─── Test CostGuard ───────────────────────────────────────────────

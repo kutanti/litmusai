@@ -5,7 +5,7 @@ side-by-side with cost-per-successful-task metrics — the number
 nobody else gives you.
 
 Features:
-    - Auto cost tracking (OpenAI, Anthropic, Google, 60+ models)
+    - Auto cost tracking (OpenAI, Anthropic, Google, 20+ models)
     - Cost per task & cost per *successful* task
     - Latency percentiles (p50, p95, p99)
     - Model comparison tables
@@ -108,7 +108,11 @@ def get_pricing(model: str) -> ModelPricing | None:
 
     Exact match is preferred. For fuzzy matching, the longest
     matching key wins (so "gpt-4o-mini" beats "gpt-4o").
+    Returns None for empty/whitespace model names.
     """
+    model = model.strip()
+    if not model:
+        return None
     if model in _PRICING_DB:
         return _PRICING_DB[model]
     # Try partial match — prefer longest key match
@@ -129,9 +133,28 @@ def register_pricing(
     output_cost_per_m: float,
     provider: str = "custom",
 ) -> None:
-    """Register custom pricing for a model."""
-    _PRICING_DB[model] = ModelPricing(
-        model=model,
+    """Register custom pricing for a model.
+
+    Args:
+        model: Model name (stored normalized to lowercase).
+        input_cost_per_m: Cost per million input tokens (must be >= 0).
+        output_cost_per_m: Cost per million output tokens (must be >= 0).
+        provider: Provider name for display purposes.
+    """
+    model = model.strip()
+    if not model:
+        raise ValueError("model name cannot be empty")
+    if input_cost_per_m < 0:
+        raise ValueError(
+            f"input_cost_per_m must be non-negative, got {input_cost_per_m}"
+        )
+    if output_cost_per_m < 0:
+        raise ValueError(
+            f"output_cost_per_m must be non-negative, got {output_cost_per_m}"
+        )
+    key = model.lower()
+    _PRICING_DB[key] = ModelPricing(
+        model=key,
         input_cost_per_m=input_cost_per_m,
         output_cost_per_m=output_cost_per_m,
         provider=provider,
