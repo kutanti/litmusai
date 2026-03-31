@@ -1,0 +1,43 @@
+name: coding
+description: Code generation and debugging tasks
+
+cases:
+  - id: code_001
+    name: "Fibonacci function"
+    task: "Write a Python function that returns the nth Fibonacci number"
+    expected_contains:
+      - "def"
+      - "fibonacci"
+    tags: ["python", "algorithms"]
+
+  - id: code_002
+    name: "FizzBuzz"
+    task: "Write a Python FizzBuzz function for numbers 1 to n"
+    expected_contains:
+      - "def"
+      - "fizz"
+    tags: ["python", "basics"]
+
+  - id: code_003
+    name: "Reverse a string"
+    task: "Write a Python function to reverse a string without using built-in reverse"
+    expected_contains:
+      - "def"
+      - "return"
+    tags: ["python", "strings"]
+
+  - id: code_004
+    name: "Binary search"
+    task: "Implement binary search in Python"
+    expected_contains:
+      - "def"
+      - "mid"
+    tags: ["python", "algorithms", "search"]
+
+  - id: code_005
+    name: "Debug TypeError"
+    task: "Fix this Python code: def add(a, b): return a + b; result = add('hello', 5)"
+    expected_contains:
+      - "str"
+      - "int"
+    tags: ["python", "debugging"]
