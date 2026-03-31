@@ -1,0 +1,42 @@
+name: research
+description: Research, synthesis, and fact-checking tasks
+
+cases:
+  - id: research_001
+    name: "Simple fact lookup"
+    task: "What is the capital of France?"
+    expected_contains:
+      - "Paris"
+    tags: ["facts", "geography"]
+
+  - id: research_002
+    name: "Comparison task"
+    task: "Compare Python and JavaScript for backend development. List 3 pros and cons of each."
+    expected_contains:
+      - "Python"
+      - "JavaScript"
+    tags: ["comparison", "programming"]
+
+  - id: research_003
+    name: "Summarization"
+    task: "Summarize the key principles of the Agile methodology in 3-5 bullet points."
+    expected_contains:
+      - "iterative"
+    tags: ["summarization", "methodology"]
+
+  - id: research_004
+    name: "Multi-step research"
+    task: "What are the top 3 most popular Python web frameworks and what are their main differences?"
+    expected_contains:
+      - "Django"
+      - "Flask"
+    tags: ["research", "python", "web"]
+
+  - id: research_005
+    name: "Fact verification"
+    task: "Is the following statement true or false: 'The Great Wall of China is visible from space with the naked eye.' Explain your answer."
+    expected_contains:
+      - "false"
+    expected_not_contains:
+      - "true statement"
+    tags: ["fact-check", "verification"]
