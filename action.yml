@@ -1,0 +1,143 @@
+name: 'LitmusAI Agent Evaluation'
+description: 'Run AI agent evaluations in CI/CD. Compare against baselines, detect regressions, post PR comments.'
+author: 'kutanti'
+
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  suite:
+    description: 'Test suite name or path to YAML file'
+    required: true
+  agent:
+    description: 'Agent module path (e.g. my_agent:agent)'
+    required: true
+  baseline:
+    description: 'Path to baseline results JSON'
+    required: false
+    default: '.litmus/baseline.json'
+  threshold:
+    description: 'Minimum pass rate to succeed (0.0-1.0)'
+    required: false
+    default: '0.7'
+  budget:
+    description: 'Maximum total cost budget ($)'
+    required: false
+    default: ''
+  concurrency:
+    description: 'Max parallel evaluations'
+    required: false
+    default: '5'
+  save-baseline:
+    description: 'Save results as new baseline'
+    required: false
+    default: 'false'
+  post-comment:
+    description: 'Post results as PR comment'
+    required: false
+    default: 'true'
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.11'
+
+outputs:
+  pass-rate:
+    description: 'Evaluation pass rate (0.0-1.0)'
+  total-cost:
+    description: 'Total evaluation cost ($)'
+  passed:
+    description: 'Number of passed tests'
+  failed:
+    description: 'Number of failed tests'
+  has-regression:
+    description: 'Whether regressions were detected'
+  results-path:
+    description: 'Path to results JSON file'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install LitmusAI
+      shell: bash
+      run: pip install litmuseval
+
+    - name: Run evaluation
+      shell: bash
+      id: eval
+      run: |
+        ARGS="--suite ${{ inputs.suite }} --agent ${{ inputs.agent }}"
+        ARGS="$ARGS --format json --output .litmus/results.json"
+        ARGS="$ARGS --concurrency ${{ inputs.concurrency }}"
+
+        if [ -n "${{ inputs.threshold }}" ]; then
+          ARGS="$ARGS --threshold ${{ inputs.threshold }}"
+        fi
+
+        if [ -n "${{ inputs.budget }}" ]; then
+          ARGS="$ARGS --budget ${{ inputs.budget }}"
+        fi
+
+        if [ -f "${{ inputs.baseline }}" ]; then
+          ARGS="$ARGS --baseline ${{ inputs.baseline }}"
+        fi
+
+        if [ "${{ inputs.save-baseline }}" = "true" ]; then
+          ARGS="$ARGS --save-baseline"
+        fi
+
+        # Capture exit code — don't swallow failures
+        EVAL_EXIT=0
+        litmus run $ARGS || EVAL_EXIT=$?
+
+        # Parse results for outputs (even if eval failed)
+        if [ -f .litmus/results.json ]; then
+          echo "results-path=.litmus/results.json" >> $GITHUB_OUTPUT
+          python3 -c "
+        import json
+        d = json.load(open('.litmus/results.json'))
+        r = d.get('results', d)
+        s = r.get('summary', {}) if isinstance(r, dict) else {}
+        print(f'pass-rate={s.get(\"pass_rate\", 0)}')
+        print(f'total-cost={s.get(\"total_cost\", 0)}')
+        print(f'passed={s.get(\"passed\", 0)}')
+        print(f'failed={s.get(\"failed\", 0)}')
+        print(f'has-regression={str(d.get(\"has_regression\", False)).lower()}')
+        " >> $GITHUB_OUTPUT
+        fi
+
+        # Propagate the original exit code
+        exit $EVAL_EXIT
+
+    - name: Generate PR comment
+      if: always() && inputs.post-comment == 'true' && github.event_name == 'pull_request'
+      shell: bash
+      run: |
+        if [ -f .litmus/results.json ]; then
+          python3 -c "
+        import json
+        from litmusai.ci import format_report, load_baseline
+
+        data = json.load(open('.litmus/results.json'))
+        results = data.get('results', data)
+        baseline = load_baseline('${{ inputs.baseline }}')
+        threshold = float('${{ inputs.threshold }}' or '0.7')
+        report = format_report(results, baseline, fmt='markdown', threshold=threshold)
+
+        with open('.litmus/pr-comment.md', 'w') as f:
+            f.write(report)
+        "
+        fi
+
+    - name: Post PR comment
+      if: always() && inputs.post-comment == 'true' && github.event_name == 'pull_request'
+      uses: thollander/actions-comment-pull-request@v3
+      with:
+        file-path: .litmus/pr-comment.md
+        comment-tag: litmusai-results
