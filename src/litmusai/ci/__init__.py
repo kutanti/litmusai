@@ -8,8 +8,8 @@ results as GitHub PR comments.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +32,7 @@ def load_agent(agent_path: str) -> Agent:
 
     Formats:
         - "module:attribute"  →  import module, get attribute
-        - "path/to/file.py:attribute"  →  load file, get attribute
+        - "path/to/file.py:attribute"  →  load file directly
         - "module:attribute"  where attribute is a function → Agent.from_function()
 
     Args:
@@ -50,23 +50,25 @@ def load_agent(agent_path: str) -> Agent:
 
     module_part, attr_name = agent_path.rsplit(":", 1)
 
-    # Handle file paths
+    # Handle file paths — load directly without mutating sys.path
     if module_part.endswith(".py"):
         file_path = Path(module_part).resolve()
         if not file_path.exists():
             raise FileNotFoundError(f"Agent file not found: {module_part}")
-        # Add parent directory to sys.path
-        parent = str(file_path.parent)
-        if parent not in sys.path:
-            sys.path.insert(0, parent)
         module_name = file_path.stem
+        spec = importlib.util.spec_from_file_location(module_name, file_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot create module spec for '{file_path}'")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
     else:
         module_name = module_part
-
-    try:
-        module = importlib.import_module(module_name)
-    except ImportError as e:
-        raise ImportError(f"Cannot import agent module '{module_name}': {e}") from e
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError as e:
+            raise ImportError(
+                f"Cannot import agent module '{module_name}': {e}"
+            ) from e
 
     if not hasattr(module, attr_name):
         raise AttributeError(
@@ -211,6 +213,7 @@ def format_report(
     data: dict[str, Any],
     baseline: dict[str, Any] | None = None,
     fmt: str = "markdown",
+    threshold: float = 0.7,
 ) -> str:
     """Format evaluation results as a report string.
 
@@ -218,6 +221,7 @@ def format_report(
         data: Current evaluation results dict.
         baseline: Optional baseline results for comparison.
         fmt: Output format ("markdown", "github", "json").
+        threshold: Pass rate threshold for verdict (default 0.7).
 
     Returns:
         Formatted report string.
@@ -246,7 +250,7 @@ def format_report(
     cost = summary.get("total_cost", 0)
     latency = summary.get("avg_latency_ms", 0)
 
-    verdict = "✅ PASSED" if pass_rate >= 0.7 else "❌ FAILED"
+    verdict = "✅ PASSED" if pass_rate >= threshold else "❌ FAILED"
     lines.append(f"### {verdict}")
     lines.append("")
     lines.append("| Metric | Value |")
@@ -356,10 +360,9 @@ async def run_evaluation(
     output_path: str | None = None,
     fmt: str = "table",
     baseline_path: str | None = None,
-    save_baseline: bool = False,
+    do_save_baseline: bool = False,
     budget: float | None = None,
     threshold: float | None = None,
-    model: str | None = None,
 ) -> dict[str, Any]:
     """Run a full evaluation and return results.
 
@@ -369,6 +372,7 @@ async def run_evaluation(
         Dict with 'success' bool and result data.
     """
     success = True
+    effective_threshold = threshold if threshold is not None else 0.7
 
     # Load agent
     try:
@@ -377,9 +381,13 @@ async def run_evaluation(
         console.print(f"[red]Error loading agent: {e}[/red]")
         return {"success": False, "error": str(e)}
 
-    # Load suite
+    # Load suite — support both names and file paths
     try:
-        test_suite = TestSuite.load(suite)
+        suite_path = Path(suite)
+        if suite_path.exists() and suite_path.suffix in (".yaml", ".yml"):
+            test_suite = TestSuite.from_yaml(suite_path)
+        else:
+            test_suite = TestSuite.load(suite)
     except Exception as e:
         console.print(f"[red]Error loading suite '{suite}': {e}[/red]")
         return {"success": False, "error": str(e)}
@@ -426,42 +434,48 @@ async def run_evaluation(
         success = False
 
     # Check for regressions
+    has_regression = False
     if baseline:
         comparison = compare_with_baseline(data, baseline)
-        if comparison["has_regression"]:
+        has_regression = comparison["has_regression"]
+        if has_regression:
             console.print("[red]⚠️ Regressions detected:[/red]")
             for r in comparison["regressions"]:
                 console.print(f"  [red]• {r}[/red]")
             success = False
 
+    # Build full output payload (consistent for stdout and file)
+    output_payload: dict[str, Any] = {"results": data}
+    if baseline:
+        output_payload["comparison"] = compare_with_baseline(data, baseline)
+    output_payload["success"] = success
+    output_payload["has_regression"] = has_regression
+
     # Output results
     if fmt == "table":
         format_table(data)
     elif fmt == "json":
-        output = format_report(data, baseline, fmt="json")
-        console.print(output)
+        console.print(json.dumps(output_payload, indent=2))
     elif fmt in ("markdown", "github"):
-        output = format_report(data, baseline, fmt="markdown")
-        console.print(output)
+        md = format_report(data, baseline, fmt="markdown",
+                           threshold=effective_threshold)
+        console.print(md)
 
     # Save output file
     if output_path:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         if output_path.endswith(".json"):
-            Path(output_path).write_text(json.dumps(data, indent=2))
+            Path(output_path).write_text(json.dumps(output_payload, indent=2))
         else:
             Path(output_path).write_text(
-                format_report(data, baseline, fmt="markdown")
+                format_report(data, baseline, fmt="markdown",
+                              threshold=effective_threshold)
             )
         console.print(f"📄 Results saved to {output_path}")
 
     # Save baseline
-    if save_baseline:
-        bp = save_baseline_fn(data)
+    if do_save_baseline:
+        bp = save_baseline(data)
         console.print(f"📊 Baseline saved to {bp}")
 
-    return {"success": success, "data": data}
-
-
-# Alias to avoid name collision with the save_baseline parameter
-save_baseline_fn = save_baseline
+    return {"success": success, "data": data, "has_regression": has_regression}

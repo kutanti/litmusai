@@ -58,6 +58,16 @@ class TestLoadAgent:
         agent = load_agent(f"{agent_file}:my_func")
         assert agent.name == "my_func"
 
+    def test_load_from_file_no_sys_path_mutation(self, tmp_path: Path):
+        """Loading from file should not pollute sys.path."""
+        import sys
+
+        agent_file = tmp_path / "isolated_agent.py"
+        agent_file.write_text("def run(t): return t\n")
+        original_path = sys.path.copy()
+        load_agent(f"{agent_file}:run")
+        assert sys.path == original_path
+
 
 # ─── Test Baseline ────────────────────────────────────────────────
 
@@ -218,6 +228,18 @@ class TestFormatReport:
         md = format_report(self._make_data(), fmt="markdown")
         assert "Detailed Results" in md
         assert "test_0" in md
+
+    def test_custom_threshold_pass(self):
+        data = self._make_data()
+        data["summary"]["pass_rate"] = 0.6
+        md = format_report(data, fmt="markdown", threshold=0.5)
+        assert "PASSED" in md
+
+    def test_custom_threshold_fail(self):
+        data = self._make_data()
+        data["summary"]["pass_rate"] = 0.6
+        md = format_report(data, fmt="markdown", threshold=0.9)
+        assert "FAILED" in md
 
 
 class TestFormatTable:
