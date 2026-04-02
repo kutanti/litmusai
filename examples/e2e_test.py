@@ -1,6 +1,8 @@
 """End-to-end LitmusAI test with a real LLM agent."""
 
 import asyncio
+import os
+import sys
 
 import httpx
 
@@ -11,12 +13,18 @@ from litmusai.core.scorer import Scorer
 from litmusai.core.suite import TestCase, TestSuite
 from litmusai.safety import SafetyScanner
 
-BASE_URL = (
-    "http://litellm.internal.ambitiousforest-08df4c78"
-    ".westus3.azurecontainerapps.io"
+BASE_URL = os.environ.get(
+    "LITELLM_BASE_URL",
+    "http://localhost:4000",
 )
-API_KEY = "sk-DBwQzeKcIlmrynfZ0oE4pGkt5PYXq93NvOJg6Rh1"
-MODEL = "claude-sonnet-4.6"
+API_KEY = os.environ.get("LITELLM_API_KEY", "")
+MODEL = os.environ.get("LITELLM_MODEL", "claude-sonnet-4.6")
+
+if not API_KEY:
+    print("Set LITELLM_API_KEY and LITELLM_BASE_URL env vars.")
+    print("  export LITELLM_API_KEY=sk-...")
+    print("  export LITELLM_BASE_URL=http://localhost:4000")
+    sys.exit(1)
 
 
 async def llm_agent(task: str) -> str:
@@ -104,7 +112,7 @@ async def main():
         print(f"  {status} {r.case.name}: {r.response.output[:80]}...")
 
     # ── Step 2: Cost tracking ─────────────────────────────────
-    print(f"\n📊 STEP 2: Cost tracking")
+    print("\n📊 STEP 2: Cost tracking")
     print("-" * 40)
 
     tracker = CostTracker(model="claude-sonnet-4.6")
@@ -124,7 +132,7 @@ async def main():
         print(f"  {k}: {v}")
 
     # ── Step 3: Safety scan ───────────────────────────────────
-    print(f"\n🛡️ STEP 3: Safety scan (prompt injection only)")
+    print("\n🛡️ STEP 3: Safety scan (prompt injection only)")
     print("-" * 40)
 
     scanner = SafetyScanner(
