@@ -4,20 +4,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if TYPE_CHECKING:
+    from litmusai.assertions import Assertion
 
 
 @dataclass
 class TestCase:
-    """A single test case for agent evaluation."""
+    """A single test case for agent evaluation.
+
+    Supports both legacy scoring (``expected_contains``) and the
+    new assertion engine (``assertions`` list).  When ``assertions``
+    is non-empty it takes precedence.
+    """
+
     id: str
     name: str
     task: str
     expected: str | None = None
     expected_contains: list[str] = field(default_factory=list)
     expected_not_contains: list[str] = field(default_factory=list)
+    assertions: list[Assertion] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     timeout_seconds: float = 60.0
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -87,13 +97,22 @@ class TestSuite:
         return suite
 
     def to_yaml(self, path: str | Path) -> None:
-        """Save the test suite to a YAML file."""
+        """Save the test suite to a YAML file.
+
+        Note: ``assertions`` are not serialized (they are Python
+        objects).  Use YAML for legacy-style suites.
+        """
         path = Path(path)
+        # Skip non-serializable fields (assertions are Python objects)
+        skip_fields = {"assertions", "scorer"}
         data = {
             "name": self.name,
             "description": self.description,
             "cases": [
-                {k: v for k, v in case.__dict__.items() if v}
+                {
+                    k: v for k, v in case.__dict__.items()
+                    if v and k not in skip_fields
+                }
                 for case in self.cases
             ],
         }
