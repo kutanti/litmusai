@@ -416,3 +416,342 @@ class TestCrewAIAdapter:
         assert response.tokens_used == 500
         assert response.input_tokens == 300
         assert response.output_tokens == 200
+
+
+# ─── Test OpenAI Chat Adapter ──────────────────────────────────────
+
+
+class TestOpenAIChatAdapter:
+    def test_creation_defaults(self):
+        agent = Agent.from_openai_chat(
+            api_key="sk-test",
+            model="gpt-4o",
+        )
+        assert agent.name == "gpt-4o"
+        assert agent.model == "gpt-4o"
+
+    def test_creation_custom_name(self):
+        agent = Agent.from_openai_chat(
+            api_key="sk-test",
+            model="gpt-4o",
+            name="my-agent",
+        )
+        assert agent.name == "my-agent"
+
+    def test_creation_all_params(self):
+        agent = Agent.from_openai_chat(
+            base_url="http://localhost:4000",
+            api_key="sk-test",
+            model="claude-sonnet-4",
+            name="claude",
+            system_prompt="You are helpful.",
+            temperature=0.0,
+            max_tokens=500,
+            timeout=30,
+            extra_headers={"X-Custom": "yes"},
+            extra_body={"top_p": 0.9},
+        )
+        assert agent.name == "claude"
+        assert agent.model == "claude-sonnet-4"
+
+    @pytest.mark.asyncio
+    async def test_parses_token_usage(self, httpx_mock):
+        """Real token usage is extracted from the API response."""
+        agent = Agent.from_openai_chat(
+            base_url="http://fake-api.test/v1",
+            api_key="sk-test",
+            model="gpt-4o",
+        )
+
+        httpx_mock.add_response(
+            url="http://fake-api.test/v1/chat/completions",
+            json={
+                "choices": [
+                    {"message": {"content": "The answer is 42.", "role": "assistant"}}
+                ],
+                "usage": {
+                    "prompt_tokens": 15,
+                    "completion_tokens": 8,
+                    "total_tokens": 23,
+                },
+                "model": "gpt-4o-2026-03-15",
+            },
+        )
+
+        response = await agent.run("What is the meaning of life?")
+        assert response.success
+        assert response.output == "The answer is 42."
+        assert response.input_tokens == 15
+        assert response.output_tokens == 8
+        assert response.tokens_used == 23
+        assert response.model == "gpt-4o-2026-03-15"
+
+    @pytest.mark.asyncio
+    async def test_zero_tokens_when_missing(self, httpx_mock):
+        """Handles responses without usage field gracefully."""
+        agent = Agent.from_openai_chat(
+            base_url="http://fake-api.test/v1",
+            api_key="sk-test",
+            model="gpt-4o",
+        )
+
+        httpx_mock.add_response(
+            url="http://fake-api.test/v1/chat/completions",
+            json={
+                "choices": [
+                    {"message": {"content": "Hello!", "role": "assistant"}}
+                ],
+            },
+        )
+
+        response = await agent.run("Hi")
+        assert response.success
+        assert response.output == "Hello!"
+        assert response.input_tokens == 0
+        assert response.output_tokens == 0
+        assert response.tokens_used == 0
+
+    @pytest.mark.asyncio
+    async def test_extracts_tool_calls(self, httpx_mock):
+        """Tool calls from the API response are captured."""
+        agent = Agent.from_openai_chat(
+            base_url="http://fake-api.test/v1",
+            api_key="sk-test",
+            model="gpt-4o",
+        )
+
+        httpx_mock.add_response(
+            url="http://fake-api.test/v1/chat/completions",
+            json={
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "call_123",
+                            "type": "function",
+                            "function": {
+                                "name": "get_weather",
+                                "arguments": '{"city": "Paris"}',
+                            },
+                        }],
+                    },
+                }],
+                "usage": {"prompt_tokens": 20, "completion_tokens": 15,
+                          "total_tokens": 35},
+            },
+        )
+
+        response = await agent.run("What's the weather in Paris?")
+        assert response.success
+        assert len(response.tool_calls) == 1
+        assert response.tool_calls[0].name == "get_weather"
+        assert response.tool_calls[0].arguments == {"city": "Paris"}
+
+    @pytest.mark.asyncio
+    async def test_computes_cost_with_pricing(self, httpx_mock):
+        """Cost is computed when pricing is registered."""
+        from litmusai.benchmarks import register_pricing
+
+        register_pricing("cost-test-model", 3.0, 15.0)
+
+        agent = Agent.from_openai_chat(
+            base_url="http://fake-api.test/v1",
+            api_key="sk-test",
+            model="cost-test-model",
+        )
+
+        httpx_mock.add_response(
+            url="http://fake-api.test/v1/chat/completions",
+            json={
+                "choices": [
+                    {"message": {"content": "Hello", "role": "assistant"}}
+                ],
+                "usage": {
+                    "prompt_tokens": 1000,
+                    "completion_tokens": 500,
+                    "total_tokens": 1500,
+                },
+                "model": "cost-test-model",
+            },
+        )
+
+        response = await agent.run("Hi")
+        # 1000 * 3.0/1M + 500 * 15.0/1M = 0.003 + 0.0075 = 0.0105
+        assert response.cost == pytest.approx(0.0105, abs=1e-6)
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_included(self, httpx_mock):
+        """System prompt is sent in the messages."""
+        agent = Agent.from_openai_chat(
+            base_url="http://fake-api.test/v1",
+            api_key="sk-test",
+            model="gpt-4o",
+            system_prompt="You are a pirate.",
+        )
+
+        httpx_mock.add_response(
+            url="http://fake-api.test/v1/chat/completions",
+            json={
+                "choices": [
+                    {"message": {"content": "Arr!", "role": "assistant"}}
+                ],
+                "usage": {"prompt_tokens": 25, "completion_tokens": 5,
+                          "total_tokens": 30},
+            },
+        )
+
+        response = await agent.run("Hello")
+        assert response.success
+        assert response.output == "Arr!"
+
+        # Verify the request included the system prompt
+        request = httpx_mock.get_request()
+        import json
+        body = json.loads(request.content)
+        assert len(body["messages"]) == 2
+        assert body["messages"][0]["role"] == "system"
+        assert body["messages"][0]["content"] == "You are a pirate."
+        assert body["messages"][1]["role"] == "user"
+
+    @pytest.mark.asyncio
+    async def test_http_error_returns_failure(self, httpx_mock):
+        """HTTP errors result in a failed AgentResponse."""
+        agent = Agent.from_openai_chat(
+            base_url="http://fake-api.test/v1",
+            api_key="sk-test",
+            model="gpt-4o",
+        )
+
+        httpx_mock.add_response(
+            url="http://fake-api.test/v1/chat/completions",
+            status_code=429,
+            json={"error": {"message": "Rate limited"}},
+        )
+
+        response = await agent.run("Hi")
+        assert not response.success
+        assert response.error is not None
+
+    @pytest.mark.asyncio
+    async def test_base_url_without_v1(self, httpx_mock):
+        """Base URL without /v1 suffix is handled correctly."""
+        agent = Agent.from_openai_chat(
+            base_url="http://localhost:4000",
+            api_key="sk-test",
+            model="gpt-4o",
+        )
+
+        httpx_mock.add_response(
+            url="http://localhost:4000/v1/chat/completions",
+            json={
+                "choices": [
+                    {"message": {"content": "OK", "role": "assistant"}}
+                ],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 2,
+                          "total_tokens": 7},
+            },
+        )
+
+        response = await agent.run("Hi")
+        assert response.success
+        assert response.output == "OK"
+        assert response.tokens_used == 7
+
+    @pytest.mark.asyncio
+    async def test_temperature_and_max_tokens(self, httpx_mock):
+        """Temperature and max_tokens are sent in request body."""
+        agent = Agent.from_openai_chat(
+            base_url="http://fake-api.test/v1",
+            api_key="sk-test",
+            model="gpt-4o",
+            temperature=0.0,
+            max_tokens=256,
+        )
+
+        httpx_mock.add_response(
+            url="http://fake-api.test/v1/chat/completions",
+            json={
+                "choices": [
+                    {"message": {"content": "OK", "role": "assistant"}}
+                ],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 2,
+                          "total_tokens": 7},
+            },
+        )
+
+        response = await agent.run("Hi")
+        assert response.success
+
+        import json
+        request = httpx_mock.get_request()
+        body = json.loads(request.content)
+        assert body["temperature"] == 0.0
+        assert body["max_tokens"] == 256
+
+    @pytest.mark.asyncio
+    async def test_extra_body_merged(self, httpx_mock):
+        """Extra body params are merged into the request."""
+        agent = Agent.from_openai_chat(
+            base_url="http://fake-api.test/v1",
+            api_key="sk-test",
+            model="gpt-4o",
+            extra_body={"top_p": 0.9, "seed": 42},
+        )
+
+        httpx_mock.add_response(
+            url="http://fake-api.test/v1/chat/completions",
+            json={
+                "choices": [
+                    {"message": {"content": "OK", "role": "assistant"}}
+                ],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 2,
+                          "total_tokens": 7},
+            },
+        )
+
+        response = await agent.run("Hi")
+        assert response.success
+
+        import json
+        request = httpx_mock.get_request()
+        body = json.loads(request.content)
+        assert body["top_p"] == 0.9
+        assert body["seed"] == 42
+
+    @pytest.mark.asyncio
+    async def test_malformed_tool_call_args(self, httpx_mock):
+        """Handles invalid JSON in tool call arguments gracefully."""
+        agent = Agent.from_openai_chat(
+            base_url="http://fake-api.test/v1",
+            api_key="sk-test",
+            model="gpt-4o",
+        )
+
+        httpx_mock.add_response(
+            url="http://fake-api.test/v1/chat/completions",
+            json={
+                "choices": [{
+                    "message": {
+                        "content": "OK",
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "broken_fn",
+                                "arguments": "{not valid json}",
+                            },
+                        }],
+                    },
+                }],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5,
+                          "total_tokens": 15},
+            },
+        )
+
+        response = await agent.run("Hi")
+        assert response.success
+        assert len(response.tool_calls) == 1
+        assert response.tool_calls[0].name == "broken_fn"
+        assert "raw" in response.tool_calls[0].arguments

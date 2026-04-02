@@ -20,6 +20,7 @@ contributing new adapters to the project.
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -564,6 +565,149 @@ class Agent:
             }
 
         return cls(fn=openai_fn, name=name, model=model)
+
+    @classmethod
+    def from_openai_chat(
+        cls,
+        *,
+        base_url: str = "https://api.openai.com/v1",
+        api_key: str = "",
+        model: str = "gpt-4o",
+        name: str | None = None,
+        system_prompt: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int = 1024,
+        timeout: float = 120,
+        extra_headers: dict[str, str] | None = None,
+        extra_body: dict[str, Any] | None = None,
+    ) -> Agent:
+        """Create an agent from any OpenAI-compatible chat API.
+
+        Works with OpenAI, Anthropic (via proxy), Azure, LiteLLM,
+        Ollama, vLLM, Together AI, Fireworks, and any provider that
+        implements the ``/v1/chat/completions`` endpoint.
+
+        **Automatically captures real token usage** from the API
+        response — no guessing.
+
+        Args:
+            base_url: API base URL (e.g. ``https://api.openai.com/v1``).
+            api_key: API key / bearer token.
+            model: Model identifier (e.g. ``gpt-4o``, ``claude-sonnet-4``).
+            name: Display name (defaults to model name).
+            system_prompt: Optional system message prepended to every call.
+            temperature: Sampling temperature (``None`` = provider default).
+            max_tokens: Maximum tokens in the completion.
+            timeout: HTTP timeout in seconds.
+            extra_headers: Additional HTTP headers.
+            extra_body: Extra fields merged into the request body.
+
+        Returns:
+            An :class:`Agent` that produces :class:`AgentResponse` with
+            real ``input_tokens``, ``output_tokens``, ``tokens_used``,
+            and computed ``cost`` when pricing is registered.
+
+        Example:
+            >>> agent = Agent.from_openai_chat(
+            ...     base_url="https://api.openai.com/v1",
+            ...     api_key="sk-...",
+            ...     model="gpt-4o",
+            ... )
+            >>> resp = await agent.run("What is 2+2?")
+            >>> print(resp.input_tokens, resp.output_tokens)
+        """
+        display_name = name or model
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            **(extra_headers or {}),
+        }
+
+        # Normalise base_url — strip trailing /v1 so we can add our own
+        clean_url = base_url.rstrip("/")
+        if not clean_url.endswith("/v1"):
+            endpoint = f"{clean_url}/v1/chat/completions"
+        else:
+            endpoint = f"{clean_url}/chat/completions"
+
+        async def openai_chat_fn(task: str, **kwargs: Any) -> AgentResponse:
+            messages: list[dict[str, str]] = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": task})
+
+            body: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+            }
+            if temperature is not None:
+                body["temperature"] = temperature
+            if extra_body:
+                body.update(extra_body)
+
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                r = await client.post(endpoint, headers=headers,
+                                      json=body)
+                r.raise_for_status()
+                data = r.json()
+
+            # ── Parse response ─────────────────────────────
+            content = ""
+            choices = data.get("choices", [])
+            if choices:
+                msg = choices[0].get("message", {})
+                content = msg.get("content", "") or ""
+
+            # ── Extract real token usage ───────────────────
+            usage = data.get("usage", {})
+            inp_tok = int(usage.get("prompt_tokens", 0))
+            out_tok = int(usage.get("completion_tokens", 0))
+            total_tok = int(usage.get("total_tokens",
+                                      inp_tok + out_tok))
+
+            # ── Compute cost from pricing DB ───────────────
+            cost = 0.0
+            try:
+                from litmusai.benchmarks import get_pricing
+                pricing = get_pricing(model)
+                if pricing and (inp_tok or out_tok):
+                    cost = (
+                        inp_tok * pricing.input_cost_per_token
+                        + out_tok * pricing.output_cost_per_token
+                    )
+            except ImportError:
+                pass
+
+            # ── Extract tool calls if present ──────────────
+            tool_calls: list[ToolCall] = []
+            if choices:
+                msg = choices[0].get("message", {})
+                for tc in msg.get("tool_calls", []):
+                    fn = tc.get("function", {})
+                    args_str = fn.get("arguments", "{}")
+                    try:
+                        args = _json.loads(args_str)
+                    except (ValueError, TypeError):
+                        args = {"raw": args_str}
+                    tool_calls.append(ToolCall(
+                        name=fn.get("name", ""),
+                        arguments=args,
+                    ))
+
+            resp_model = data.get("model", model)
+
+            return AgentResponse(
+                output=content,
+                input_tokens=inp_tok,
+                output_tokens=out_tok,
+                tokens_used=total_tok,
+                cost=cost,
+                model=resp_model,
+                tool_calls=tool_calls,
+            )
+
+        return cls(fn=openai_chat_fn, name=display_name, model=model)
 
     @classmethod
     def from_callable(
