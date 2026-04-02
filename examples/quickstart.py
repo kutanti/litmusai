@@ -7,7 +7,6 @@ import asyncio
 
 from litmusai import Agent, AgentResponse, AgentStep, TestSuite, ToolCall, evaluate
 
-
 # ─── Example 1: Simple Function Agent ─────────────────────────────
 
 
