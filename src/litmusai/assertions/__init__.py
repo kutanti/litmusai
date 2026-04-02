@@ -640,13 +640,13 @@ class JsonSchema(Assertion):
 
         expected_type = schema.get("type")
         if expected_type:
-            type_map = {
+            type_map: dict[str, type | tuple[type, ...]] = {
                 "object": dict, "array": list, "string": str,
                 "number": (int, float), "integer": int,
                 "boolean": bool,
             }
             py_type = type_map.get(expected_type)
-            if py_type and not isinstance(data, py_type):
+            if py_type is not None and not isinstance(data, py_type):
                 errors.append(
                     f"Expected {expected_type}, got {type(data).__name__}"
                 )
@@ -788,16 +788,16 @@ class JsonPath(Assertion):
     def _compare(self, value: Any) -> bool:
         """Compare value with expected using operator."""
         if self.operator == "eq":
-            return value == self.expected
+            return bool(value == self.expected)
         if self.operator == "contains":
             return (
                 isinstance(value, str)
                 and str(self.expected) in value
             )
         if self.operator == "gt":
-            return value > self.expected
+            return bool(value > self.expected)
         if self.operator == "lt":
-            return value < self.expected
+            return bool(value < self.expected)
         return False
 
     def __repr__(self) -> str:
