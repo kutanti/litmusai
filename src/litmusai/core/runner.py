@@ -200,7 +200,8 @@ async def evaluate(
     async def run_case(case: TestCase) -> TestResult:
         async with semaphore:
             response = await agent.run(case.task)
-            score = scorer.score(case, response)
+            # Use async scoring to avoid blocking the event loop
+            score = await scorer.ascore(case, response)
 
             return TestResult(
                 case=case,
@@ -217,8 +218,14 @@ async def evaluate(
         results.results.append(result)
         results.total_cost += result.cost
         results.total_time_ms += result.latency_ms
-        results.total_input_tokens += result.input_tokens
-        results.total_output_tokens += result.output_tokens
+        # Use split tokens when available, fall back to tokens_used
+        inp = result.input_tokens
+        out = result.output_tokens
+        if inp == 0 and out == 0 and result.response.tokens_used > 0:
+            # Provider only gave total — attribute to input
+            inp = result.response.tokens_used
+        results.total_input_tokens += inp
+        results.total_output_tokens += out
 
     if verbose:
         with Progress(
@@ -232,15 +239,27 @@ async def evaluate(
                 f"Evaluating {agent.name} on {suite.name}...",
                 total=len(suite),
             )
-            # Use concurrency even in verbose mode via as_completed
-            pending = [
-                asyncio.ensure_future(run_case(case))
-                for case in suite.cases
+            # Queue-based pattern: feed cases through a queue
+            # so only `concurrency` tasks are scheduled at a time.
+            queue: asyncio.Queue[TestCase] = asyncio.Queue()
+            for case in suite.cases:
+                queue.put_nowait(case)
+
+            async def worker() -> None:
+                while not queue.empty():
+                    try:
+                        case = queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    result = await run_case(case)
+                    _accumulate(result)
+                    progress.advance(prog_task)
+
+            workers = [
+                asyncio.ensure_future(worker())
+                for _ in range(min(concurrency, len(suite)))
             ]
-            for coro in asyncio.as_completed(pending):
-                result = await coro
-                _accumulate(result)
-                progress.advance(prog_task)
+            await asyncio.gather(*workers)
     else:
         tasks = [run_case(case) for case in suite.cases]
         test_results = await asyncio.gather(*tasks)

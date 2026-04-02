@@ -395,3 +395,75 @@ class TestRunnerIntegration:
         assert _safe_filename("my/agent\\v2..") == "my_agent_v2.."
         assert _safe_filename("hello world:1") == "hello_world_1"
         assert "/" not in _safe_filename("a/b/c")
+
+
+class TestAsyncScoring:
+    @pytest.mark.asyncio
+    async def test_ascore_with_assertions(self):
+        """ascore() works with sync assertions."""
+        scorer = Scorer()
+        case = TestCase(
+            id="1", name="test", task="6*6?",
+            assertions=[Numeric(36)],
+        )
+        resp = AgentResponse(output="36")
+        result = await scorer.ascore(case, resp)
+        assert result.passed
+
+    @pytest.mark.asyncio
+    async def test_ascore_falls_back_to_legacy(self):
+        """ascore() uses legacy when no assertions."""
+        scorer = Scorer()
+        case = TestCase(
+            id="1", name="test", task="test",
+            expected_contains=["hello"],
+        )
+        resp = AgentResponse(output="hello world")
+        result = await scorer.ascore(case, resp)
+        assert result.passed
+
+    @pytest.mark.asyncio
+    async def test_ascore_error_response(self):
+        scorer = Scorer()
+        case = TestCase(
+            id="1", name="test", task="test",
+            assertions=[Numeric(36)],
+        )
+        resp = AgentResponse(output="", success=False, error="timeout")
+        result = await scorer.ascore(case, resp)
+        assert not result.passed
+
+    @pytest.mark.asyncio
+    async def test_tokens_used_fallback(self):
+        """tokens_used is tracked when input/output are zero."""
+        async def my_agent(task: str) -> AgentResponse:
+            return AgentResponse(
+                output="ok", tokens_used=100,
+                input_tokens=0, output_tokens=0,
+            )
+
+        agent = Agent.from_function(my_agent, name="test")
+        suite = TestSuite(name="tok")
+        suite.add_case(TestCase(id="t1", name="t", task="t"))
+
+        results = await evaluate(agent, suite, verbose=False)
+        assert results.total_input_tokens == 100
+
+    @pytest.mark.asyncio
+    async def test_yaml_excludes_assertions(self):
+        """to_yaml skips non-serializable assertions field."""
+        import tempfile
+
+        suite = TestSuite(name="yaml-test")
+        suite.add_case(TestCase(
+            id="t1", name="test", task="test",
+            assertions=[Numeric(36)],
+        ))
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w") as f:
+            suite.to_yaml(f.name)
+            loaded = TestSuite.from_yaml(f.name)
+            assert len(loaded.cases) == 1
+            assert loaded.cases[0].task == "test"
+            # assertions not in YAML, so empty on reload
+            assert loaded.cases[0].assertions == []

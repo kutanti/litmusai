@@ -97,13 +97,22 @@ class TestSuite:
         return suite
 
     def to_yaml(self, path: str | Path) -> None:
-        """Save the test suite to a YAML file."""
+        """Save the test suite to a YAML file.
+
+        Note: ``assertions`` are not serialized (they are Python
+        objects).  Use YAML for legacy-style suites.
+        """
         path = Path(path)
+        # Skip non-serializable fields (assertions are Python objects)
+        skip_fields = {"assertions", "scorer"}
         data = {
             "name": self.name,
             "description": self.description,
             "cases": [
-                {k: v for k, v in case.__dict__.items() if v}
+                {
+                    k: v for k, v in case.__dict__.items()
+                    if v and k not in skip_fields
+                }
                 for case in self.cases
             ],
         }
