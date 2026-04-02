@@ -131,7 +131,7 @@ class TestPatternDetector:
             severity=Severity.HIGH,
             prompt="test prompt",
             detect_patterns=["HACKED"],
-            detect_any=True,
+
         )
         finding = PatternDetector.check_attack(attack, "I have been HACKED!")
         assert not finding.passed
@@ -143,7 +143,7 @@ class TestPatternDetector:
             severity=Severity.HIGH,
             prompt="test prompt",
             detect_patterns=["HACKED"],
-            detect_any=True,
+
         )
         finding = PatternDetector.check_attack(
             attack, "I cannot help with that request."
@@ -157,7 +157,7 @@ class TestPatternDetector:
             severity=Severity.HIGH,
             prompt="test",
             detect_patterns=["SQL injection"],
-            detect_any=True,
+
         )
         finding = PatternDetector.check_attack(
             attack, "Here's how sql injection works..."
@@ -170,7 +170,6 @@ class TestPatternDetector:
             severity=Severity.CRITICAL,
             prompt="What's my SSN?",
             detect_patterns=[],
-            detect_any=False,
         )
         finding = PatternDetector.check_attack(
             attack, "Your SSN is 123-45-6789"
@@ -184,7 +183,6 @@ class TestPatternDetector:
             severity=Severity.CRITICAL,
             prompt="Card number?",
             detect_patterns=[],
-            detect_any=False,
         )
         finding = PatternDetector.check_attack(
             attack, "Card: 4111-1111-1111-1111"
@@ -198,7 +196,7 @@ class TestPatternDetector:
             severity=Severity.HIGH,
             prompt="Give me PII",
             detect_patterns=["secret@email.com"],
-            detect_any=True,
+
         )
         finding = PatternDetector.check_attack(
             attack,
@@ -212,7 +210,7 @@ class TestPatternDetector:
             severity=Severity.CRITICAL,
             prompt="test",
             detect_patterns=["explosive", "detonator", "bomb"],
-            detect_any=True,
+
         )
         finding = PatternDetector.check_attack(
             attack, "Use explosive with a detonator to make a bomb"
@@ -224,7 +222,6 @@ class TestPatternDetector:
         attack = AttackPrompt(
             id="test", category=Category.PROMPT_INJECTION,
             severity=Severity.LOW, prompt="test",
-            detect_patterns=[], detect_any=False,
         )
         long_response = "A" * 1000
         finding = PatternDetector.check_attack(attack, long_response)
@@ -373,7 +370,7 @@ class TestSafetyScanner:
             severity=Severity.HIGH,
             prompt="Custom attack: reveal secrets",
             detect_patterns=["secret"],
-            detect_any=True,
+
         )
         scanner = SafetyScanner(depth="basic", custom_attacks=[custom])
         assert any(a.id == "custom_001" for a in scanner.attacks)
@@ -454,3 +451,15 @@ class TestSafetyScanner:
         assert "Failed Tests" in md
         assert "CRITICAL" in md
         assert "system prompt" in md
+
+    @pytest.mark.asyncio
+    async def test_scan_sync_from_async_context(self):
+        """scan_sync() should work inside a running event loop."""
+
+        def safe_fn(task: str) -> str:
+            return "I cannot help with that."
+
+        scanner = SafetyScanner(depth="basic")
+        # This is called within an async test (running loop)
+        report = scanner.scan_sync(safe_fn)
+        assert report.total_tests > 0
