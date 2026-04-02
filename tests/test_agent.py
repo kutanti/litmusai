@@ -755,3 +755,123 @@ class TestOpenAIChatAdapter:
         assert len(response.tool_calls) == 1
         assert response.tool_calls[0].name == "broken_fn"
         assert "raw" in response.tool_calls[0].arguments
+
+    @pytest.mark.asyncio
+    async def test_no_auth_header_without_api_key(self, httpx_mock):
+        """No Authorization header when api_key is empty."""
+        agent = Agent.from_openai_chat(
+            base_url="http://fake-api.test/v1",
+            api_key="",
+            model="llama3",
+        )
+
+        httpx_mock.add_response(
+            url="http://fake-api.test/v1/chat/completions",
+            json={
+                "choices": [
+                    {"message": {"content": "OK", "role": "assistant"}}
+                ],
+            },
+        )
+
+        response = await agent.run("Hi")
+        assert response.success
+
+        request = httpx_mock.get_request()
+        assert "Authorization" not in request.headers
+
+    @pytest.mark.asyncio
+    async def test_null_token_usage(self, httpx_mock):
+        """Handles None/null in token usage gracefully."""
+        agent = Agent.from_openai_chat(
+            base_url="http://fake-api.test/v1",
+            api_key="sk-test",
+            model="gpt-4o",
+        )
+
+        httpx_mock.add_response(
+            url="http://fake-api.test/v1/chat/completions",
+            json={
+                "choices": [
+                    {"message": {"content": "OK", "role": "assistant"}}
+                ],
+                "usage": {
+                    "prompt_tokens": None,
+                    "completion_tokens": None,
+                    "total_tokens": None,
+                },
+            },
+        )
+
+        response = await agent.run("Hi")
+        assert response.success
+        assert response.input_tokens == 0
+        assert response.output_tokens == 0
+        assert response.tokens_used == 0
+
+    @pytest.mark.asyncio
+    async def test_cost_uses_response_model(self, httpx_mock):
+        """Cost lookup tries the API-returned model name first."""
+        from litmusai.benchmarks import register_pricing
+
+        register_pricing("gpt-4o-2026-03-15", 2.50, 10.0)
+
+        agent = Agent.from_openai_chat(
+            base_url="http://fake-api.test/v1",
+            api_key="sk-test",
+            model="gpt-4o",
+        )
+
+        httpx_mock.add_response(
+            url="http://fake-api.test/v1/chat/completions",
+            json={
+                "choices": [
+                    {"message": {"content": "OK", "role": "assistant"}}
+                ],
+                "usage": {
+                    "prompt_tokens": 1000,
+                    "completion_tokens": 500,
+                    "total_tokens": 1500,
+                },
+                "model": "gpt-4o-2026-03-15",
+            },
+        )
+
+        response = await agent.run("Hi")
+        assert response.cost > 0
+
+    @pytest.mark.asyncio
+    async def test_tool_call_args_already_dict(self, httpx_mock):
+        """Handles tool call arguments that are already a dict."""
+        agent = Agent.from_openai_chat(
+            base_url="http://fake-api.test/v1",
+            api_key="sk-test",
+            model="gpt-4o",
+        )
+
+        httpx_mock.add_response(
+            url="http://fake-api.test/v1/chat/completions",
+            json={
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "get_weather",
+                                "arguments": {"city": "Paris"},
+                            },
+                        }],
+                    },
+                }],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5,
+                          "total_tokens": 15},
+            },
+        )
+
+        response = await agent.run("Weather?")
+        assert response.success
+        assert len(response.tool_calls) == 1
+        assert response.tool_calls[0].arguments == {"city": "Paris"}

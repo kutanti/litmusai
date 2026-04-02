@@ -29,6 +29,16 @@ from typing import Any
 import httpx
 
 
+def _safe_int(value: Any) -> int:
+    """Convert a value to int safely, returning 0 for None/invalid."""
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return 0
+
+
 @dataclass
 class ToolCall:
     """Record of a tool/function call made by an agent."""
@@ -583,9 +593,13 @@ class Agent:
     ) -> Agent:
         """Create an agent from any OpenAI-compatible chat API.
 
-        Works with OpenAI, Anthropic (via proxy), Azure, LiteLLM,
+        Works with OpenAI, Anthropic (via proxy), LiteLLM,
         Ollama, vLLM, Together AI, Fireworks, and any provider that
         implements the ``/v1/chat/completions`` endpoint.
+
+        For Azure OpenAI, use the Azure-specific endpoint directly
+        via :meth:`from_url` or pass the full Azure URL as
+        ``base_url`` with ``extra_headers`` for the api-key.
 
         **Automatically captures real token usage** from the API
         response — no guessing.
@@ -617,11 +631,12 @@ class Agent:
             >>> print(resp.input_tokens, resp.output_tokens)
         """
         display_name = name or model
-        headers = {
-            "Authorization": f"Bearer {api_key}",
+        headers: dict[str, str] = {
             "Content-Type": "application/json",
             **(extra_headers or {}),
         }
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
 
         # Normalise base_url — strip trailing /v1 so we can add our own
         clean_url = base_url.rstrip("/")
@@ -660,17 +675,24 @@ class Agent:
                 content = msg.get("content", "") or ""
 
             # ── Extract real token usage ───────────────────
-            usage = data.get("usage", {})
-            inp_tok = int(usage.get("prompt_tokens", 0))
-            out_tok = int(usage.get("completion_tokens", 0))
-            total_tok = int(usage.get("total_tokens",
-                                      inp_tok + out_tok))
+            usage = data.get("usage") or {}
+            inp_tok = _safe_int(usage.get("prompt_tokens"))
+            out_tok = _safe_int(usage.get("completion_tokens"))
+            total_tok = _safe_int(
+                usage.get("total_tokens", inp_tok + out_tok),
+            )
 
             # ── Compute cost from pricing DB ───────────────
+            # Try the model name returned by the API first (e.g.
+            # "gpt-4o-2026-03-15"), then fall back to the requested
+            # model name. The pricing DB supports fuzzy matching.
+            resp_model = data.get("model", model)
             cost = 0.0
             try:
                 from litmusai.benchmarks import get_pricing
-                pricing = get_pricing(model)
+                pricing = (
+                    get_pricing(resp_model) or get_pricing(model)
+                )
                 if pricing and (inp_tok or out_tok):
                     cost = (
                         inp_tok * pricing.input_cost_per_token
@@ -685,17 +707,20 @@ class Agent:
                 msg = choices[0].get("message", {})
                 for tc in msg.get("tool_calls", []):
                     fn = tc.get("function", {})
-                    args_str = fn.get("arguments", "{}")
-                    try:
-                        args = _json.loads(args_str)
-                    except (ValueError, TypeError):
-                        args = {"raw": args_str}
+                    raw_args = fn.get("arguments", "{}")
+                    # Some providers return arguments as a dict
+                    # already; others return a JSON string.
+                    if isinstance(raw_args, dict):
+                        args = raw_args
+                    else:
+                        try:
+                            args = _json.loads(str(raw_args))
+                        except (ValueError, TypeError):
+                            args = {"raw": raw_args}
                     tool_calls.append(ToolCall(
                         name=fn.get("name", ""),
-                        arguments=args,
+                        arguments=args if isinstance(args, dict) else {"raw": args},
                     ))
-
-            resp_model = data.get("model", model)
 
             return AgentResponse(
                 output=content,
