@@ -13,9 +13,11 @@ from litmusai.assertions import (
     JsonPath,
     JsonSchema,
     JsonValid,
+    LLMGrade,
     NotContains,
     Numeric,
     RegexMatch,
+    Semantic,
     Weighted,
 )
 
@@ -516,7 +518,7 @@ class TestAtLeast:
         assert r.details["n_passed"] == 1
 
     def test_repr(self):
-        assert "AtLeast" in repr(AtLeast(2, [Exact("a")]))
+        assert "AtLeast" in repr(AtLeast(1, [Exact("a"), Exact("b")]))
 
 
 # ─── Weighted ────────────────────────────────────────────────────
@@ -656,3 +658,250 @@ class TestRealWorldScenarios:
 def _json(s: str) -> str:
     """Identity — just for readability in tests."""
     return s
+
+
+# ─── Word-number edge cases ─────────────────────────────────────
+
+
+class TestNumericWordBoundary:
+    def test_someone_does_not_match_one(self):
+        """'someone' should NOT trigger Numeric(1)."""
+        r = Numeric(1, tolerance=0.5).check("someone told me")
+        assert not r.passed
+
+    def test_everyone_does_not_match_one(self):
+        r = Numeric(1, tolerance=0.5).check("everyone knows")
+        assert not r.passed
+
+    def test_standalone_one_matches(self):
+        r = Numeric(1, tolerance=0.01).check("there is one item")
+        assert r.passed
+
+    def test_twenty_standalone(self):
+        r = Numeric(20, tolerance=0.5).check("there are twenty items")
+        assert r.passed
+
+
+# ─── JsonPath edge cases ────────────────────────────────────────
+
+
+class TestJsonPathEdgeCases:
+    def test_type_mismatch_gt(self):
+        """String vs number comparison doesn't crash."""
+        r = JsonPath("name", 10, operator="gt").check('{"name": "Alice"}')
+        assert not r.passed
+
+    def test_not_exists_operator(self):
+        """not_exists passes when path is missing."""
+        r = JsonPath("missing", operator="not_exists").check('{"a": 1}')
+        assert r.passed
+
+    def test_not_exists_fails_when_present(self):
+        r = JsonPath("a", operator="not_exists").check('{"a": 1}')
+        assert not r.passed
+
+
+# ─── AtLeast validation ─────────────────────────────────────────
+
+
+class TestAtLeastValidation:
+    def test_negative_n_raises(self):
+        with pytest.raises(ValueError, match="non-negative"):
+            AtLeast(-1, [Exact("a")])
+
+    def test_n_exceeds_assertions_raises(self):
+        with pytest.raises(ValueError, match="exceeds"):
+            AtLeast(5, [Exact("a"), Exact("b")])
+
+
+# ─── AnyOf assertion_type ───────────────────────────────────────
+
+
+class TestAnyOfType:
+    def test_assertion_type_is_anyof(self):
+        r = AnyOf(Exact("a"), Exact("b")).check("a")
+        assert r.assertion_type == "AnyOf"
+
+
+# ─── Async Assertions (mocked) ──────────────────────────────────
+
+
+class TestSemanticAssertion:
+    @pytest.mark.asyncio
+    async def test_high_similarity_passes(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://api.test.com/embeddings",
+            json={
+                "data": [
+                    {"embedding": [1.0, 0.0, 0.0]},
+                    {"embedding": [0.99, 0.1, 0.0]},
+                ],
+            },
+        )
+
+        sem = Semantic(
+            "The answer is 36",
+            threshold=0.9,
+            base_url="https://api.test.com",
+            api_key="sk-test",
+        )
+        r = await sem.acheck("36")
+        assert r.passed
+        assert r.score > 0.9
+
+    @pytest.mark.asyncio
+    async def test_low_similarity_fails(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://api.test.com/embeddings",
+            json={
+                "data": [
+                    {"embedding": [1.0, 0.0, 0.0]},
+                    {"embedding": [0.0, 1.0, 0.0]},
+                ],
+            },
+        )
+
+        sem = Semantic(
+            "The answer is 36",
+            threshold=0.8,
+            base_url="https://api.test.com",
+            api_key="sk-test",
+        )
+        r = await sem.acheck("completely different")
+        assert not r.passed
+
+    @pytest.mark.asyncio
+    async def test_api_error_returns_failure(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://api.test.com/embeddings",
+            status_code=500,
+            json={"error": "server error"},
+        )
+
+        sem = Semantic(
+            "test",
+            base_url="https://api.test.com",
+            api_key="sk-test",
+        )
+        r = await sem.acheck("test")
+        assert not r.passed
+        assert "error" in r.reason.lower()
+
+    @pytest.mark.asyncio
+    async def test_insufficient_embeddings(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://api.test.com/embeddings",
+            json={"data": [{"embedding": [1.0]}]},
+        )
+
+        sem = Semantic(
+            "test",
+            base_url="https://api.test.com",
+            api_key="sk-test",
+        )
+        r = await sem.acheck("test")
+        assert not r.passed
+        assert "insufficient" in r.reason.lower()
+
+
+class TestLLMGradeAssertion:
+    @pytest.mark.asyncio
+    async def test_high_score_passes(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://api.test.com/chat/completions",
+            json={
+                "choices": [{
+                    "message": {
+                        "content": '{"score": 5, "reason": "Correct"}',
+                    },
+                }],
+            },
+        )
+
+        judge = LLMGrade(
+            "Is the math correct?",
+            base_url="https://api.test.com",
+            api_key="sk-test",
+            passing_score=4,
+        )
+        r = await judge.acheck("The answer is 36.")
+        assert r.passed
+        assert r.score == 1.0
+
+    @pytest.mark.asyncio
+    async def test_low_score_fails(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://api.test.com/chat/completions",
+            json={
+                "choices": [{
+                    "message": {
+                        "content": '{"score": 2, "reason": "Wrong"}',
+                    },
+                }],
+            },
+        )
+
+        judge = LLMGrade(
+            "Is the math correct?",
+            base_url="https://api.test.com",
+            api_key="sk-test",
+            passing_score=4,
+        )
+        r = await judge.acheck("42")
+        assert not r.passed
+
+    @pytest.mark.asyncio
+    async def test_api_error_returns_failure(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://api.test.com/chat/completions",
+            status_code=429,
+            json={"error": "rate limited"},
+        )
+
+        judge = LLMGrade(
+            "test",
+            base_url="https://api.test.com",
+            api_key="sk-test",
+        )
+        r = await judge.acheck("test")
+        assert not r.passed
+        assert "error" in r.reason.lower()
+
+    @pytest.mark.asyncio
+    async def test_unparseable_response(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://api.test.com/chat/completions",
+            json={
+                "choices": [{
+                    "message": {"content": "I give it a 4 out of 5"},
+                }],
+            },
+        )
+
+        judge = LLMGrade(
+            "test",
+            base_url="https://api.test.com",
+            api_key="sk-test",
+            passing_score=4,
+        )
+        r = await judge.acheck("test")
+        # Should parse the "4" from the text
+        assert r.passed
+
+
+# ─── Composites with async assertions ───────────────────────────
+
+
+class TestCompositesWithAsync:
+    @pytest.mark.asyncio
+    async def test_all_with_sync_only(self):
+        """All() works with sync assertions."""
+        r = All(Numeric(36), NotContains(["sorry"])).check("36")
+        assert r.passed
+
+    @pytest.mark.asyncio
+    async def test_anyof_assertion_type_consistent(self):
+        """AnyOf repr and assertion_type match."""
+        r = AnyOf(Exact("a")).check("a")
+        assert "AnyOf" in repr(AnyOf(Exact("a")))
+        assert r.assertion_type == "AnyOf"

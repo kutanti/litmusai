@@ -108,19 +108,33 @@ class Assertion(ABC):
 class AsyncAssertion(Assertion):
     """Base for assertions that require async calls (LLM, embeddings).
 
-    Subclasses implement :meth:`acheck`. The sync :meth:`check` raises
-    ``RuntimeError`` — use :meth:`acheck` or run within an event loop.
+    Subclasses implement :meth:`acheck`. The sync :meth:`check`
+    attempts to run :meth:`acheck` via an event loop. If already
+    inside an event loop, falls back to a ``ThreadPoolExecutor``.
     """
 
     def check(
         self, response: str, *, context: dict[str, Any] | None = None,
     ) -> AssertionResult:
-        """Sync check — raises RuntimeError. Use acheck() instead."""
-        msg = (
-            f"{type(self).__name__} requires async. "
-            f"Use `await assertion.acheck(response)` instead."
+        """Sync wrapper — runs acheck() in an event loop."""
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    asyncio.run,
+                    self.acheck(response, context=context),
+                )
+                return future.result(timeout=120)
+        return asyncio.run(
+            self.acheck(response, context=context),
         )
-        raise RuntimeError(msg)
 
     @abstractmethod
     async def acheck(
@@ -392,22 +406,29 @@ def _extract_numbers(text: str) -> list[float]:
         except ValueError:
             pass
 
-    # Try common word-numbers ("thirty-six", "forty two")
+    # Handle compound word-numbers first: "thirty-six" → 36
     lower = text.lower()
-    for word, val in _WORD_NUMS.items():
-        if word in lower:
-            numbers.append(val)
-
-    # Handle compound: "thirty-six" → 36
     compound_re = re.compile(
         r"\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
         r"[- ]?(one|two|three|four|five|six|seven|eight|nine)\b",
         re.IGNORECASE,
     )
+    compound_matched: set[str] = set()
     for m in compound_re.finditer(lower):
         tens = _WORD_NUMS.get(m.group(1).lower(), 0)
         ones = _WORD_NUMS.get(m.group(2).lower(), 0)
         numbers.append(tens + ones)
+        # Track matched words so we don't double-count
+        compound_matched.add(m.group(1).lower())
+        compound_matched.add(m.group(2).lower())
+
+    # Try standalone word-numbers with word boundaries
+    # Skip words already matched as part of compounds
+    for word, val in _WORD_NUMS.items():
+        if word in compound_matched:
+            continue
+        if re.search(rf"\b{re.escape(word)}\b", lower):
+            numbers.append(val)
 
     return numbers
 
@@ -632,6 +653,8 @@ class JsonSchema(Assertion):
                 return []
             except jsonschema.ValidationError as e:
                 return [e.message]
+            except jsonschema.SchemaError as e:
+                return [f"Invalid schema: {e.message}"]
         except ImportError:
             pass
 
@@ -699,7 +722,7 @@ class JsonPath(Assertion):
         path: Dot-notation path to the value.
         expected: Expected value at that path.
         operator: Comparison operator (``"eq"``, ``"contains"``,
-                  ``"gt"``, ``"lt"``, ``"exists"``).
+                  ``"gt"``, ``"lt"``, ``"exists"``, ``"not_exists"``).
 
     Example:
         >>> JsonPath("name", "Jupiter").check('{"name": "Jupiter"}')
@@ -787,17 +810,20 @@ class JsonPath(Assertion):
 
     def _compare(self, value: Any) -> bool:
         """Compare value with expected using operator."""
-        if self.operator == "eq":
-            return bool(value == self.expected)
-        if self.operator == "contains":
-            return (
-                isinstance(value, str)
-                and str(self.expected) in value
-            )
-        if self.operator == "gt":
-            return bool(value > self.expected)
-        if self.operator == "lt":
-            return bool(value < self.expected)
+        try:
+            if self.operator == "eq":
+                return bool(value == self.expected)
+            if self.operator == "contains":
+                return (
+                    isinstance(value, str)
+                    and str(self.expected) in value
+                )
+            if self.operator == "gt":
+                return bool(value > self.expected)
+            if self.operator == "lt":
+                return bool(value < self.expected)
+        except TypeError:
+            return False
         return False
 
     def __repr__(self) -> str:
@@ -861,13 +887,20 @@ class Semantic(AsyncAssertion):
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(url, headers=headers, json={
-                "model": self.model,
-                "input": [self.reference, response],
-            })
-            resp.raise_for_status()
-            data = resp.json()
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(url, headers=headers, json={
+                    "model": self.model,
+                    "input": [self.reference, response],
+                })
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as e:
+            return AssertionResult(
+                passed=False, score=0.0,
+                reason=f"Embedding API error: {e}",
+                assertion_type="Semantic",
+            )
 
         emb = data.get("data", [])
         if len(emb) < 2:
@@ -985,17 +1018,24 @@ class LLMGrade(AsyncAssertion):
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(url, headers=headers, json={
-                "model": self.model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": self.temperature,
-                "max_tokens": 200,
-            })
-            resp.raise_for_status()
-            data = resp.json()
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(url, headers=headers, json={
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": self.temperature,
+                    "max_tokens": 200,
+                })
+                resp.raise_for_status()
+                data = resp.json()
 
-        reply = data["choices"][0]["message"]["content"]
+            reply = data["choices"][0]["message"]["content"]
+        except Exception as e:
+            return AssertionResult(
+                passed=False, score=0.0,
+                reason=f"LLM Judge API error: {e}",
+                assertion_type="LLMGrade",
+            )
 
         # Parse score from reply
         score_val, reason = self._parse_reply(reply)
@@ -1195,7 +1235,7 @@ class AnyOf(Assertion):
             passed=any_passed,
             score=best_score,
             reason=reason,
-            assertion_type="Any",
+            assertion_type="AnyOf",
             details={"results": [
                 {"type": r.assertion_type, "passed": r.passed,
                  "score": r.score, "reason": r.reason}
@@ -1220,6 +1260,15 @@ class AtLeast(Assertion):
     """
 
     def __init__(self, n: int, assertions: list[Assertion]):
+        if n < 0:
+            msg = f"n must be non-negative, got {n}"
+            raise ValueError(msg)
+        if n > len(assertions):
+            msg = (
+                f"n ({n}) exceeds number of assertions "
+                f"({len(assertions)})"
+            )
+            raise ValueError(msg)
         self.n = n
         self.assertions = assertions
 
