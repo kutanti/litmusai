@@ -140,19 +140,31 @@ def run(
         litmus run -s research -a my_agent:agent --threshold 0.8
     """
     from litmusai.ci import run_evaluation
+    from litmusai.config import load_config, merge_cli_args
+
+    # Load config and merge with CLI args
+    config = load_config()
+    merged = merge_cli_args(
+        config,
+        concurrency=concurrency if concurrency != 5 else None,
+        threshold=threshold,
+        budget=budget,
+        runs=runs if runs != 1 else None,
+        log_dir=log_dir,
+    )
 
     result = asyncio.run(run_evaluation(
         suite=suite,
         agent_path=agent,
-        concurrency=concurrency,
+        concurrency=merged["concurrency"],
         output_path=output,
         fmt=fmt,
         baseline_path=baseline,
         do_save_baseline=save_baseline,
-        budget=budget,
-        threshold=threshold,
-        runs=runs,
-        log_dir=log_dir,
+        budget=merged["budget"],
+        threshold=merged["threshold"],
+        runs=merged["runs"],
+        log_dir=merged["log_dir"],
     ))
 
     # Exit with non-zero if evaluation failed
