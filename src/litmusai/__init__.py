@@ -23,7 +23,7 @@ from litmusai.assertions import (
 )
 from litmusai.core.agent import Agent, AgentResponse, AgentStep, ToolCall
 from litmusai.core.reporter import Reporter
-from litmusai.core.runner import compare, evaluate
+from litmusai.core.runner import compare, evaluate, multi_evaluate
 from litmusai.core.scorer import Scorer
 from litmusai.core.suite import TestCase, TestSuite
 
@@ -36,6 +36,7 @@ __all__ = [
     "TestCase",
     "TestSuite",
     "evaluate",
+    "multi_evaluate",
     "compare",
     "Scorer",
     "Reporter",

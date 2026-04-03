@@ -159,6 +159,264 @@ class EvalResults:
         return f"EvalResults({self.summary()})"
 
 
+# ─── Multi-Run Statistical Results ──────────────────────────────
+
+
+@dataclass
+class CaseStats:
+    """Statistical summary for a single test case across N runs."""
+
+    case_id: str
+    case_name: str
+    task: str
+    n_runs: int = 0
+    n_passed: int = 0
+    scores: list[float] = field(default_factory=list)
+    latencies: list[float] = field(default_factory=list)
+    costs: list[float] = field(default_factory=list)
+
+    @property
+    def pass_rate(self) -> float:
+        return self.n_passed / self.n_runs if self.n_runs > 0 else 0.0
+
+    @property
+    def mean_score(self) -> float:
+        return sum(self.scores) / len(self.scores) if self.scores else 0.0
+
+    @property
+    def std_score(self) -> float:
+        if len(self.scores) < 2:
+            return 0.0
+        mean = self.mean_score
+        variance = sum((s - mean) ** 2 for s in self.scores) / (
+            len(self.scores) - 1
+        )
+        return float(variance ** 0.5)
+
+    @property
+    def mean_latency(self) -> float:
+        return (
+            sum(self.latencies) / len(self.latencies)
+            if self.latencies else 0.0
+        )
+
+    @property
+    def std_latency(self) -> float:
+        if len(self.latencies) < 2:
+            return 0.0
+        mean = self.mean_latency
+        variance = sum(
+            (lat - mean) ** 2 for lat in self.latencies
+        ) / (
+            len(self.latencies) - 1
+        )
+        return float(variance ** 0.5)
+
+    @property
+    def reliability(self) -> str:
+        """How reliable is this test? Based on pass consistency."""
+        if self.n_runs == 0:
+            return "unknown"
+        rate = self.pass_rate
+        if rate == 1.0:
+            return "stable-pass"
+        if rate == 0.0:
+            return "stable-fail"
+        if rate >= 0.8:
+            return "mostly-pass"
+        if rate <= 0.2:
+            return "mostly-fail"
+        return "flaky"
+
+
+@dataclass
+class MultiRunResults:
+    """Statistical summary across multiple evaluation runs."""
+
+    agent_name: str
+    suite_name: str
+    n_runs: int
+    case_stats: dict[str, CaseStats] = field(default_factory=dict)
+    run_results: list[EvalResults] = field(default_factory=list)
+    timestamp: str = ""
+
+    @property
+    def mean_pass_rate(self) -> float:
+        if not self.run_results:
+            return 0.0
+        return (
+            sum(r.pass_rate for r in self.run_results)
+            / len(self.run_results)
+        )
+
+    @property
+    def std_pass_rate(self) -> float:
+        if len(self.run_results) < 2:
+            return 0.0
+        mean = self.mean_pass_rate
+        variance = sum(
+            (r.pass_rate - mean) ** 2 for r in self.run_results
+        ) / (len(self.run_results) - 1)
+        return float(variance ** 0.5)
+
+    @property
+    def total_cost(self) -> float:
+        return sum(r.total_cost for r in self.run_results)
+
+    @property
+    def flaky_tests(self) -> list[CaseStats]:
+        return [
+            s for s in self.case_stats.values()
+            if s.reliability == "flaky"
+        ]
+
+    def summary(self) -> str:
+        parts = [
+            f"📊 {self.n_runs} runs",
+            f"Pass rate: {self.mean_pass_rate:.0%} ±{self.std_pass_rate:.1%}",
+            f"💰 ${self.total_cost:.4f} total",
+        ]
+        if self.flaky_tests:
+            parts.append(f"⚠️ {len(self.flaky_tests)} flaky")
+        return " | ".join(parts)
+
+    def to_table(self) -> str:
+        """Per-case statistical table."""
+        lines: list[str] = []
+        header = (
+            f"{'Test':<25} {'Pass Rate':>10} "
+            f"{'Mean Score':>12} {'Std Dev':>9} "
+            f"{'Mean Lat':>10} {'Reliability':>12}"
+        )
+        lines.append(header)
+        lines.append("-" * len(header))
+
+        for stats in sorted(
+            self.case_stats.values(), key=lambda s: s.case_id,
+        ):
+            name = stats.case_name[:25]
+            prate = f"{stats.n_passed}/{stats.n_runs}"
+            mscore = f"{stats.mean_score:.3f}"
+            std = f"±{stats.std_score:.3f}"
+            mlat = f"{stats.mean_latency:.0f}ms"
+            rel = stats.reliability
+            lines.append(
+                f"{name:<25} {prate:>10} "
+                f"{mscore:>12} {std:>9} "
+                f"{mlat:>10} {rel:>12}"
+            )
+
+        lines.append("-" * len(header))
+        lines.append(self.summary())
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "agent_name": self.agent_name,
+            "suite_name": self.suite_name,
+            "n_runs": self.n_runs,
+            "timestamp": self.timestamp,
+            "summary": {
+                "mean_pass_rate": round(self.mean_pass_rate, 4),
+                "std_pass_rate": round(self.std_pass_rate, 4),
+                "total_cost": round(self.total_cost, 6),
+                "flaky_count": len(self.flaky_tests),
+            },
+            "case_stats": {
+                cid: {
+                    "case_name": s.case_name,
+                    "n_runs": s.n_runs,
+                    "n_passed": s.n_passed,
+                    "pass_rate": round(s.pass_rate, 4),
+                    "mean_score": round(s.mean_score, 4),
+                    "std_score": round(s.std_score, 4),
+                    "mean_latency_ms": round(s.mean_latency, 1),
+                    "std_latency_ms": round(s.std_latency, 1),
+                    "reliability": s.reliability,
+                }
+                for cid, s in self.case_stats.items()
+            },
+        }
+
+    def __repr__(self) -> str:
+        return f"MultiRunResults({self.summary()})"
+
+
+async def multi_evaluate(
+    agent: Agent,
+    suite: TestSuite,
+    runs: int = 3,
+    scorer: Scorer | None = None,
+    concurrency: int = 5,
+    verbose: bool = True,
+) -> MultiRunResults:
+    """Run evaluation N times and return statistical summary.
+
+    Args:
+        agent: The agent to evaluate.
+        suite: Test suite to run.
+        runs: Number of times to run each test (default 3).
+        scorer: Custom scorer.
+        concurrency: Max parallel evaluations per run.
+        verbose: Show progress.
+
+    Returns:
+        :class:`MultiRunResults` with per-case statistics.
+
+    Raises:
+        ValueError: If ``runs`` is less than 1.
+    """
+    if runs < 1:
+        msg = f"runs must be >= 1, got {runs}"
+        raise ValueError(msg)
+
+    all_runs: list[EvalResults] = []
+
+    for i in range(runs):
+        if verbose:
+            console.print(
+                f"\n[bold]Run {i + 1}/{runs}[/bold]"
+            )
+        result = await evaluate(
+            agent, suite, scorer=scorer,
+            concurrency=concurrency, verbose=verbose,
+        )
+        all_runs.append(result)
+
+    # Build per-case statistics
+    case_stats: dict[str, CaseStats] = {}
+    for run in all_runs:
+        for tr in run.results:
+            cid = tr.case.id
+            if cid not in case_stats:
+                case_stats[cid] = CaseStats(
+                    case_id=cid,
+                    case_name=tr.case.name,
+                    task=tr.case.task,
+                )
+            stats = case_stats[cid]
+            stats.n_runs += 1
+            if tr.passed:
+                stats.n_passed += 1
+            stats.scores.append(tr.score.score)
+            stats.latencies.append(tr.latency_ms)
+            stats.costs.append(tr.cost)
+
+    multi = MultiRunResults(
+        agent_name=agent.name,
+        suite_name=suite.name,
+        n_runs=runs,
+        case_stats=case_stats,
+        run_results=all_runs,
+        timestamp=time.strftime("%Y-%m-%dT%H:%M:%S"),
+    )
+
+    if verbose:
+        console.print(f"\n{multi.to_table()}\n")
+
+    return multi
+
+
 async def evaluate(
     agent: Agent,
     suite: TestSuite,
