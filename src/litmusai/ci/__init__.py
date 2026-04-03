@@ -363,6 +363,8 @@ async def run_evaluation(
     do_save_baseline: bool = False,
     budget: float | None = None,
     threshold: float | None = None,
+    runs: int = 1,
+    log_dir: str | None = None,
 ) -> dict[str, Any]:
     """Run a full evaluation and return results.
 
@@ -395,16 +397,45 @@ async def run_evaluation(
     # Run evaluation
     console.print(
         f"🧪 Running [bold]{test_suite.name}[/bold] "
-        f"with [bold]{agent.name}[/bold]..."
+        f"with [bold]{agent.name}[/bold]"
+        f"{f' ({runs} runs)' if runs > 1 else ''}..."
     )
 
-    results = await evaluate(
-        agent=agent,
-        suite=test_suite,
-        scorer=Scorer(),
-        concurrency=concurrency,
-        verbose=fmt == "table",
-    )
+    if runs > 1:
+        from litmusai.core.runner import multi_evaluate
+
+        multi = await multi_evaluate(
+            agent=agent,
+            suite=test_suite,
+            runs=runs,
+            scorer=Scorer(),
+            concurrency=concurrency,
+            verbose=fmt == "table",
+        )
+        # Use the last run for standard reporting
+        results = multi.run_results[-1]
+        # Log multi-run stats
+        if fmt == "table":
+            console.print(f"\n{multi.to_table()}\n")
+            if multi.flaky_tests:
+                console.print(
+                    f"[yellow]⚠️ {len(multi.flaky_tests)} "
+                    f"flaky test(s) detected[/yellow]"
+                )
+                for ft in multi.flaky_tests:
+                    console.print(
+                        f"  ⚠️ {ft.case_name} "
+                        f"({ft.n_passed}/{ft.n_runs} passed)"
+                    )
+    else:
+        results = await evaluate(
+            agent=agent,
+            suite=test_suite,
+            scorer=Scorer(),
+            concurrency=concurrency,
+            verbose=fmt == "table",
+            log_dir=log_dir,
+        )
 
     data = results_to_dict(results)
 
