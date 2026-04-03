@@ -3,18 +3,21 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "litmusai"
+name = "litmuseval"
 version = "0.1.0"
-description = "The open-source evaluation framework for AI agents"
+description = "The open-source evaluation framework for AI agents — test, compare, ship with confidence"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     { name = "Kunal Tanti", email = "kutanti@github.com" },
 ]
-keywords = ["ai", "agents", "evaluation", "benchmark", "testing", "llm"]
+keywords = [
+    "ai", "agents", "evaluation", "benchmark", "testing",
+    "llm", "safety", "assertions", "scoring", "openai",
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -23,6 +26,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Testing",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
 ]
 dependencies = [
     "click>=8.0",
@@ -43,18 +47,33 @@ dev = [
     "types-PyYAML>=6.0",
     "pre-commit>=3.0",
 ]
-langchain = ["langchain>=0.1"]
 openai = ["openai>=1.0"]
+langchain = ["langchain>=0.1"]
 anthropic = ["anthropic>=0.20"]
+litellm = ["litellm>=1.0"]
+all = [
+    "openai>=1.0",
+    "langchain>=0.1",
+    "anthropic>=0.20",
+    "litellm>=1.0",
+    "jsonschema>=4.0",
+]
 
 [project.scripts]
 litmus = "litmusai.cli.main:cli"
 
 [project.urls]
 Homepage = "https://github.com/kutanti/litmusai"
-Documentation = "https://github.com/kutanti/litmusai/tree/main/docs"
+Documentation = "https://github.com/kutanti/litmusai#-quickstart"
 Repository = "https://github.com/kutanti/litmusai"
 Issues = "https://github.com/kutanti/litmusai/issues"
+Changelog = "https://github.com/kutanti/litmusai/releases"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/litmusai/"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/litmusai"]
 
 [tool.ruff]
 target-version = "py310"
