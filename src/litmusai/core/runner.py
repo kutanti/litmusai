@@ -291,7 +291,9 @@ class MultiRunResults:
         lines.append(header)
         lines.append("-" * len(header))
 
-        for stats in self.case_stats.values():
+        for stats in sorted(
+            self.case_stats.values(), key=lambda s: s.case_id,
+        ):
             name = stats.case_name[:25]
             prate = f"{stats.n_passed}/{stats.n_runs}"
             mscore = f"{stats.mean_score:.3f}"
@@ -360,7 +362,14 @@ async def multi_evaluate(
 
     Returns:
         :class:`MultiRunResults` with per-case statistics.
+
+    Raises:
+        ValueError: If ``runs`` is less than 1.
     """
+    if runs < 1:
+        msg = f"runs must be >= 1, got {runs}"
+        raise ValueError(msg)
+
     all_runs: list[EvalResults] = []
 
     for i in range(runs):

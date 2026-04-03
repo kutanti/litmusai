@@ -110,7 +110,7 @@ class TestMultiRunResults:
             agent_name="test", suite_name="test",
             results=[],
         )
-        # Manually set pass rates by adding dummy results
+        # Empty results → pass_rate is 0.0 by default
         multi = MultiRunResults(
             agent_name="test", suite_name="test", n_runs=2,
             run_results=[r1, r2],
@@ -186,6 +186,21 @@ class TestMultiRunResults:
 
 
 class TestMultiEvaluate:
+    @pytest.mark.asyncio
+    async def test_runs_validation(self):
+        """runs < 1 should raise ValueError."""
+        agent = Agent.from_function(
+            lambda task: "hi", name="test",
+        )
+        suite = TestSuite(name="test")
+        suite.add_case(TestCase(id="q1", name="Q", task="hi"))
+
+        with pytest.raises(ValueError, match="runs must be >= 1"):
+            await multi_evaluate(agent, suite, runs=0)
+
+        with pytest.raises(ValueError, match="runs must be >= 1"):
+            await multi_evaluate(agent, suite, runs=-1)
+
     @pytest.mark.asyncio
     async def test_basic_multi_run(self):
         call_count = 0
