@@ -1,12 +1,16 @@
 """Result logging — save, load, compare, and diff evaluation results.
 
-Provides persistence and comparison for evaluation runs:
+Provides persistence and comparison for evaluation runs::
 
-    # Save
-    results.save("results/run-001.json")
+    from litmusai import evaluate
+    from litmusai.results import load_results, diff_results
 
-    # Load
-    loaded = load_results("results/run-001.json")
+    # Save via evaluate()
+    results = await evaluate(agent, suite, log_dir="./logs/")
+
+    # Load saved results
+    baseline = load_results("logs/baseline.json")
+    current = load_results("logs/current.json")
 
     # Diff two runs
     diff = diff_results(baseline, current)
@@ -76,8 +80,8 @@ class CaseDiff:
     @property
     def latency_change_pct(self) -> float | None:
         if (
-            self.baseline_latency_ms
-            and self.current_latency_ms
+            self.baseline_latency_ms is not None
+            and self.current_latency_ms is not None
             and self.baseline_latency_ms > 0
         ):
             return (
@@ -336,7 +340,7 @@ def list_results(
         return []
 
     entries: list[dict[str, Any]] = []
-    for f in sorted(log_dir.glob("*.json"), reverse=True):
+    for f in log_dir.glob("*.json"):
         try:
             data = load_results(f)
             entries.append({
@@ -344,7 +348,7 @@ def list_results(
                 "filename": f.name,
                 "agent_name": data.get("agent_name", "?"),
                 "suite_name": data.get("suite_name", "?"),
-                "timestamp": data.get("timestamp", "?"),
+                "timestamp": data.get("timestamp", ""),
                 "pass_rate": data.get("summary", {}).get(
                     "pass_rate", 0,
                 ),
@@ -357,10 +361,9 @@ def list_results(
         except (json.JSONDecodeError, KeyError):
             continue
 
-        if len(entries) >= limit:
-            break
-
-    return entries
+    # Sort by timestamp descending (newest first)
+    entries.sort(key=lambda e: e["timestamp"], reverse=True)
+    return entries[:limit]
 
 
 def diff_results(

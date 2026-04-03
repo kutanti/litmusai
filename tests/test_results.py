@@ -163,6 +163,14 @@ class TestCaseDiff:
         )
         assert d.latency_change_pct is None
 
+    def test_latency_change_zero_current(self):
+        """Zero current latency is valid — should compute change."""
+        d = CaseDiff(
+            case_id="q1", case_name="Math", task="test",
+            baseline_latency_ms=1000, current_latency_ms=0,
+        )
+        assert d.latency_change_pct == pytest.approx(-100.0)
+
     def test_cost_change(self):
         d = CaseDiff(
             case_id="q1", case_name="Math", task="test",
@@ -181,8 +189,9 @@ class TestLoadSave:
             suffix=".json", mode="w", delete=False,
         ) as f:
             json.dump(data, f)
-            f.flush()
-            loaded = load_results(f.name)
+            path = f.name
+        # File is closed before load — safe on all platforms
+        loaded = load_results(path)
         assert loaded["agent_name"] == "test-agent"
         assert len(loaded["results"]) == 1
 
@@ -201,6 +210,26 @@ class TestLoadSave:
             entries = list_results(tmpdir)
             assert len(entries) == 3
             assert entries[0]["agent_name"] == "agent-2"  # newest first
+
+    def test_list_results_sorts_by_timestamp(self):
+        """Verify sort is by timestamp, not filename."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # File "aaa.json" has newest timestamp
+            data_new = _make_run(
+                timestamp="2026-04-03T10:00:00", agent="newest",
+            )
+            with open(Path(tmpdir) / "aaa.json", "w") as f:
+                json.dump(data_new, f)
+            # File "zzz.json" has oldest timestamp
+            data_old = _make_run(
+                timestamp="2026-04-01T10:00:00", agent="oldest",
+            )
+            with open(Path(tmpdir) / "zzz.json", "w") as f:
+                json.dump(data_old, f)
+
+            entries = list_results(tmpdir)
+            assert entries[0]["agent_name"] == "newest"
+            assert entries[1]["agent_name"] == "oldest"
 
     def test_list_results_empty_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
