@@ -2,16 +2,33 @@
 
 # 🧪 LitmusAI
 
-### Eval framework for AI agents
+### The eval framework your AI agents deserve
 
 [![CI](https://github.com/kutanti/litmusai/actions/workflows/ci.yml/badge.svg)](https://github.com/kutanti/litmusai/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/litmuseval)](https://pypi.org/project/litmuseval/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+**15 assertion types · 46 safety attacks · 8 built-in suites · real token costs · one `pip install`**
+
 [Install](#install) · [Quick Start](#quick-start) · [Features](#features) · [CLI](#cli) · [CI/CD](#cicd)
 
 </div>
+
+---
+
+## The Problem
+
+Your agent works in demos. But you have no idea if it still works after your last commit. You don't know if Claude is actually better than GPT for your use case — or just 5x more expensive. You can't tell if your prompt change introduced a safety regression. And your "eval" is you manually typing questions into a chat window.
+
+**LitmusAI fixes this.** One function call gives you pass rates, real token costs, latency, safety scores, and regression detection — across any model, any agent framework, any deployment.
+
+```python
+results = await evaluate(agent, suite)
+# ✅ 12/12 passed | 💰 $0.003 | ⚡ 1100ms avg | 🔤 850 tokens
+```
+
+That cost is real — captured from API responses, not estimated from tiktoken.
 
 ---
 
@@ -49,6 +66,20 @@ results = asyncio.run(evaluate(agent, suite))
 ```
 
 Real token counts. Real cost. Not estimates.
+
+---
+
+## Why LitmusAI?
+
+| | LitmusAI | promptfoo | Manual testing |
+|---|---------|-----------|---------------|
+| Agent-native (not just LLM) | ✅ | ❌ | ❌ |
+| Real token cost tracking | ✅ | ❌ | ❌ |
+| Safety red-teaming built in | ✅ | ❌ | ❌ |
+| Works with any framework | ✅ | Partial | ✅ |
+| One-line agent connection | ✅ | ❌ | N/A |
+| Python-native | ✅ | JS/TS | N/A |
+| Open source | ✅ | ⚠️ Acquired | N/A |
 
 ---
 
