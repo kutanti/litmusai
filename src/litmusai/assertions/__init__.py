@@ -1373,6 +1373,62 @@ class Weighted(Assertion):
         return f"Weighted([{len(self.assertions)} assertions])"
 
 
+# ─── Plugin Registry ────────────────────────────────────────────
+
+_custom_assertions: dict[str, type[Assertion]] = {}
+
+
+def register_assertion(
+    name: str,
+    cls: type[Assertion],
+) -> None:
+    """Register a custom assertion type for use in YAML suites.
+
+    Args:
+        name: Name to use in YAML ``type`` field (case-insensitive).
+        cls: Assertion subclass.
+
+    Example::
+
+        class MyCheck(Assertion):
+            def __init__(self, threshold: float = 0.5):
+                self.threshold = threshold
+
+            def check(self, response, *, context=None):
+                score = len(response) / 100
+                return AssertionResult(
+                    passed=score >= self.threshold,
+                    score=score,
+                    reason=f"Length score: {score:.2f}",
+                )
+
+        register_assertion("length_check", MyCheck)
+
+    Then in YAML::
+
+        assertions:
+          - type: length_check
+            threshold: 0.8
+    """
+    if not isinstance(name, str) or not name.strip():
+        msg = "Assertion name must be a non-empty string"
+        raise ValueError(msg)
+    if not (isinstance(cls, type) and issubclass(cls, Assertion)):
+        msg = f"cls must be an Assertion subclass, got {cls}"
+        raise TypeError(msg)
+    _custom_assertions[name.lower().strip()] = cls
+
+
+def get_registered_assertions() -> dict[str, type[Assertion]]:
+    """Return a copy of all registered custom assertions."""
+    return dict(_custom_assertions)
+
+
+def _clear_registered_assertions() -> None:
+    """Clear all registered custom assertions (for testing)."""
+    _custom_assertions.clear()
+
+
 # ─── Public API ──────────────────────────────────────────────────
 
 __all__ = [
@@ -1403,6 +1459,9 @@ __all__ = [
     "AnyOf",
     "AtLeast",
     "Weighted",
+    # Plugin registry
+    "register_assertion",
+    "get_registered_assertions",
 ]
 
 # Backward compat

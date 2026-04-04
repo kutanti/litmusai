@@ -263,7 +263,15 @@ def _parse_single_assertion(spec: dict[str, Any]) -> Any:
 
     cls = _ASSERTION_TYPES.get(atype)
     if cls is None:
-        valid = ", ".join(sorted(_ASSERTION_TYPES.keys()))
+        # Check custom plugin registry
+        from litmusai.assertions import _custom_assertions
+
+        cls = _custom_assertions.get(atype)
+
+    if cls is None:
+        valid = ", ".join(sorted(
+            set(_ASSERTION_TYPES.keys()) | set(_custom_assertions.keys())
+        ))
         msg = f"Unknown assertion type '{atype}'. Valid: {valid}"
         raise ValueError(msg)
 
