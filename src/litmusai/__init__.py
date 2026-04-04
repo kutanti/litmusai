@@ -26,6 +26,7 @@ from litmusai.core.reporter import Reporter
 from litmusai.core.runner import compare, evaluate, multi_evaluate
 from litmusai.core.scorer import Scorer
 from litmusai.core.suite import TestCase, TestSuite
+from litmusai.globals import configure, get_config, reset_config
 
 __all__ = [
     # Core
@@ -58,4 +59,8 @@ __all__ = [
     "RegexMatch",
     "Semantic",
     "Weighted",
+    # Global config
+    "configure",
+    "get_config",
+    "reset_config",
 ]

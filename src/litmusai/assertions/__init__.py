@@ -859,15 +859,31 @@ class Semantic(AsyncAssertion):
         reference: str,
         *,
         threshold: float = 0.80,
-        model: str = "text-embedding-3-small",
-        base_url: str = "https://api.openai.com/v1",
+        model: str = "",
+        base_url: str = "",
         api_key: str = "",
+        auth_style: str = "",
     ):
+        from litmusai.globals import get_config
+
+        cfg = get_config()
         self.reference = reference
         self.threshold = threshold
-        self.model = model
-        self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
+        self.model = model or cfg.embedding_model or "text-embedding-3-small"
+        self.base_url = (base_url or cfg.base_url or "https://api.openai.com/v1").rstrip("/")
+        self.api_key = api_key or cfg.api_key
+        self.auth_style = auth_style or cfg.auth_style or "bearer"
+
+        if not self.api_key:
+            import os
+            self.api_key = os.getenv("OPENAI_API_KEY", "")
+            if not self.api_key:
+                msg = (
+                    "No API key provided for Semantic assertion. "
+                    "Either call litmusai.configure(api_key='...'), "
+                    "pass api_key='...' directly, or set OPENAI_API_KEY."
+                )
+                raise ValueError(msg)
 
     async def acheck(
         self, response: str, *, context: dict[str, Any] | None = None,
@@ -882,10 +898,11 @@ class Semantic(AsyncAssertion):
             )
 
         url = f"{self.base_url}/embeddings"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self.auth_style == "azure":
+            headers["api-key"] = self.api_key
+        else:
+            headers["Authorization"] = f"Bearer {self.api_key}"
 
         try:
             async with httpx.AsyncClient(timeout=30) as client:
@@ -970,18 +987,34 @@ class LLMGrade(AsyncAssertion):
         self,
         criteria: str,
         *,
-        model: str = "gpt-4o-mini",
-        base_url: str = "https://api.openai.com/v1",
+        model: str = "",
+        base_url: str = "",
         api_key: str = "",
+        auth_style: str = "",
         passing_score: int = 4,
         temperature: float = 0.0,
     ):
+        from litmusai.globals import get_config
+
+        cfg = get_config()
         self.criteria = criteria
-        self.model = model
-        self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
+        self.model = model or cfg.model or "gpt-4o-mini"
+        self.base_url = (base_url or cfg.base_url or "https://api.openai.com/v1").rstrip("/")
+        self.api_key = api_key or cfg.api_key
+        self.auth_style = auth_style or cfg.auth_style or "bearer"
         self.passing_score = passing_score
         self.temperature = temperature
+
+        if not self.api_key:
+            import os
+            self.api_key = os.getenv("OPENAI_API_KEY", "")
+            if not self.api_key:
+                msg = (
+                    "No API key provided for LLMGrade assertion. "
+                    "Either call litmusai.configure(api_key='...'), "
+                    "pass api_key='...' directly, or set OPENAI_API_KEY."
+                )
+                raise ValueError(msg)
 
     async def acheck(
         self, response: str, *, context: dict[str, Any] | None = None,
@@ -1013,10 +1046,11 @@ class LLMGrade(AsyncAssertion):
             )
 
         url = f"{self.base_url}/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self.auth_style == "azure":
+            headers["api-key"] = self.api_key
+        else:
+            headers["Authorization"] = f"Bearer {self.api_key}"
 
         try:
             async with httpx.AsyncClient(timeout=60) as client:

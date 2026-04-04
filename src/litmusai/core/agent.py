@@ -735,6 +735,87 @@ class Agent:
         return cls(fn=openai_chat_fn, name=display_name, model=model)
 
     @classmethod
+    def from_azure(
+        cls,
+        *,
+        resource: str,
+        deployment: str,
+        api_key: str = "",
+        api_version: str = "2024-08-01-preview",
+        name: str | None = None,
+        system_prompt: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int = 1024,
+        timeout: float = 120,
+    ) -> Agent:
+        """Create an agent from Azure OpenAI.
+
+        Builds the correct Azure URL and uses ``api-key`` header
+        authentication automatically.
+
+        Args:
+            resource: Azure resource name (e.g. ``"my-resource"``).
+            deployment: Model deployment name (e.g. ``"gpt-4o"``).
+            api_key: Azure API key. Falls back to ``AZURE_OPENAI_API_KEY``
+                env var, then global config.
+            api_version: Azure API version string.
+            name: Display name (defaults to deployment name).
+            system_prompt: Optional system message.
+            temperature: Sampling temperature.
+            max_tokens: Maximum tokens in the completion.
+            timeout: HTTP timeout in seconds.
+
+        Returns:
+            An :class:`Agent` configured for Azure OpenAI.
+
+        Example:
+            >>> agent = Agent.from_azure(
+            ...     resource="my-resource",
+            ...     deployment="gpt-4o",
+            ...     api_key="your-azure-key",
+            ... )
+        """
+        import os
+
+        resolved_key = (
+            api_key
+            or os.getenv("AZURE_OPENAI_API_KEY", "")
+        )
+        if not resolved_key:
+            from litmusai.globals import get_config
+            resolved_key = get_config().api_key
+
+        if not resolved_key:
+            msg = (
+                "No Azure API key provided. Pass api_key='...', "
+                "set AZURE_OPENAI_API_KEY, or call "
+                "litmusai.configure(api_key='...')."
+            )
+            raise ValueError(msg)
+
+        base_url = (
+            f"https://{resource}.openai.azure.com"
+            f"/openai/deployments/{deployment}"
+        )
+
+        return cls.from_openai_chat(
+            base_url=base_url,
+            api_key="",  # Don't use Bearer auth
+            model=deployment,
+            name=name or deployment,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            extra_headers={
+                "api-key": resolved_key,
+            },
+            extra_body={
+                "api_version": api_version,
+            },
+        )
+
+    @classmethod
     def from_callable(
         cls,
         obj: Any,
