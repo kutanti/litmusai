@@ -573,7 +573,11 @@ def _print_scan_report(report: object) -> None:
     "--baseline", "-b", default=None,
     help="Baseline JSON to compare",
 )
-def report(results: str, baseline: str | None) -> None:
+@click.option(
+    "--html", default=None,
+    help="Generate HTML report at this path",
+)
+def report(results: str, baseline: str | None, html: str | None) -> None:
     """Generate a report from saved results."""
     from litmusai.ci import format_report
     from litmusai.ci import load_baseline as load_bl
@@ -592,6 +596,21 @@ def report(results: str, baseline: str | None) -> None:
             f"[red]Invalid JSON in results file: {e}[/red]"
         )
         sys.exit(1)
+
+    # HTML report
+    if html:
+        from litmusai.reports import render_html
+
+        if baseline:
+            console.print(
+                "[yellow]Note: --baseline is ignored "
+                "with --html[/yellow]"
+            )
+        path = render_html(data, html)
+        console.print(
+            f"📊 [bold green]HTML report saved to {path}[/bold green]"
+        )
+        return
 
     baseline_data = None
     if baseline:
