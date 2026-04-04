@@ -25,8 +25,13 @@ Azure::
 
     litmusai.configure(
         api_key="your-azure-key",
-        base_url="https://your-resource.openai.azure.com",
         auth_style="azure",  # uses api-key header instead of Bearer
+    )
+
+    # For agents, use Agent.from_azure() which handles URL construction:
+    agent = Agent.from_azure(
+        resource="your-resource",
+        deployment="gpt-4o",
     )
 """
 
@@ -126,7 +131,11 @@ def configure(
 
 
 def get_config() -> _GlobalConfig:
-    """Return the current global configuration (read-only)."""
+    """Return the current global configuration.
+
+    Returns the internal singleton directly for performance.
+    Use :func:`configure` to modify settings.
+    """
     return _config
 
 

@@ -793,27 +793,69 @@ class Agent:
             )
             raise ValueError(msg)
 
-        base_url = (
+        # Azure uses deployment-scoped URLs with api-version query param
+        endpoint = (
             f"https://{resource}.openai.azure.com"
             f"/openai/deployments/{deployment}"
+            f"/chat/completions?api-version={api_version}"
         )
+        display_name = name or deployment
 
-        return cls.from_openai_chat(
-            base_url=base_url,
-            api_key="",  # Don't use Bearer auth
-            model=deployment,
-            name=name or deployment,
-            system_prompt=system_prompt,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            extra_headers={
-                "api-key": resolved_key,
-            },
-            extra_body={
-                "api_version": api_version,
-            },
-        )
+        az_headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "api-key": resolved_key,
+        }
+
+        import httpx
+
+        async def azure_chat_fn(task: str, **kwargs: Any) -> AgentResponse:
+            messages: list[dict[str, str]] = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": task})
+
+            body: dict[str, Any] = {
+                "model": deployment,
+                "messages": messages,
+                "max_tokens": max_tokens,
+            }
+            if temperature is not None:
+                body["temperature"] = temperature
+
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                r = await client.post(
+                    endpoint, headers=az_headers, json=body,
+                )
+                r.raise_for_status()
+                data = r.json()
+
+            choice = data["choices"][0]["message"]["content"]
+            usage = data.get("usage", {})
+            input_tok = usage.get("prompt_tokens", 0)
+            output_tok = usage.get("completion_tokens", 0)
+
+            cost = 0.0
+            try:
+                from litmusai.benchmarks import get_pricing
+                pricing = get_pricing(deployment)
+                if pricing:
+                    cost = (
+                        input_tok * pricing.input_cost_per_token
+                        + output_tok * pricing.output_cost_per_token
+                    )
+            except ImportError:
+                pass
+
+            return AgentResponse(
+                output=choice,
+                model=deployment,
+                input_tokens=input_tok,
+                output_tokens=output_tok,
+                tokens_used=input_tok + output_tok,
+                cost=cost,
+            )
+
+        return cls(fn=azure_chat_fn, name=display_name, model=deployment)
 
     @classmethod
     def from_callable(

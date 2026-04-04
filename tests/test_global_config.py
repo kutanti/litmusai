@@ -120,6 +120,14 @@ class TestSemanticGlobalConfig:
         sem = Semantic("reference")
         assert sem.auth_style == "azure"
         assert sem.api_key == "azure-key"
+        assert sem._api_version == "2024-08-01-preview"
+
+    def test_semantic_azure_api_version(self):
+        configure(api_key="azure-key", auth_style="azure")
+        from litmusai.assertions import Semantic
+
+        sem = Semantic("reference", api_version="2025-01-01")
+        assert sem._api_version == "2025-01-01"
 
     def test_semantic_no_key_raises(self, monkeypatch):
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -181,6 +189,14 @@ class TestLLMGradeGlobalConfig:
 
         judge = LLMGrade("criteria")
         assert judge.auth_style == "azure"
+        assert judge._api_version == "2024-08-01-preview"
+
+    def test_llmgrade_azure_api_version(self):
+        configure(api_key="azure-key", auth_style="azure")
+        from litmusai.assertions import LLMGrade
+
+        judge = LLMGrade("criteria", api_version="2025-01-01")
+        assert judge._api_version == "2025-01-01"
 
 
 # ─── Agent.from_azure ────────────────────────────────────────────
@@ -241,6 +257,49 @@ class TestAgentFromAzure:
                 resource="my-resource",
                 deployment="gpt-4o",
             )
+
+    @pytest.mark.asyncio
+    async def test_from_azure_endpoint_url(self):
+        """Verify Azure agent hits correct deployment-scoped URL with api-version."""
+        import httpx
+
+        from litmusai import Agent
+
+        captured_request: dict = {}
+
+        agent = Agent.from_azure(
+            resource="my-resource",
+            deployment="gpt-4o",
+            api_key="test-key",
+            api_version="2024-08-01-preview",
+        )
+
+        # Monkey-patch httpx to capture the request
+        original_post = httpx.AsyncClient.post
+
+        async def mock_post(self, url, **kwargs):
+            captured_request["url"] = str(url)
+            captured_request["headers"] = kwargs.get("headers", {})
+            # Return a fake Azure response
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"content": "test"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+                },
+            )
+
+        httpx.AsyncClient.post = mock_post
+        try:
+            await agent.run("test")
+        finally:
+            httpx.AsyncClient.post = original_post
+
+        assert "my-resource.openai.azure.com" in captured_request["url"]
+        assert "/openai/deployments/gpt-4o/chat/completions" in captured_request["url"]
+        assert "api-version=2024-08-01-preview" in captured_request["url"]
+        assert captured_request["headers"].get("api-key") == "test-key"
+        assert "Authorization" not in captured_request["headers"]
 
 
 # ─── Error Messages ─────────────────────────────────────────────

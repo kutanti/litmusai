@@ -863,6 +863,7 @@ class Semantic(AsyncAssertion):
         base_url: str = "",
         api_key: str = "",
         auth_style: str = "",
+        api_version: str = "2024-08-01-preview",
     ):
         from litmusai.globals import get_config
 
@@ -873,6 +874,7 @@ class Semantic(AsyncAssertion):
         self.base_url = (base_url or cfg.base_url or "https://api.openai.com/v1").rstrip("/")
         self.api_key = api_key or cfg.api_key
         self.auth_style = auth_style or cfg.auth_style or "bearer"
+        self._api_version = api_version
 
         if not self.api_key:
             import os
@@ -903,6 +905,18 @@ class Semantic(AsyncAssertion):
             headers["api-key"] = self.api_key
         else:
             headers["Authorization"] = f"Bearer {self.api_key}"
+
+        # Merge global extra_headers
+        from litmusai.globals import get_config
+        cfg = get_config()
+        if cfg.extra_headers:
+            headers.update(cfg.extra_headers)
+
+        # Azure requires api-version query param
+        if self.auth_style == "azure":
+            api_version = getattr(self, "_api_version", "2024-08-01-preview")
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}api-version={api_version}"
 
         try:
             async with httpx.AsyncClient(timeout=30) as client:
@@ -991,6 +1005,7 @@ class LLMGrade(AsyncAssertion):
         base_url: str = "",
         api_key: str = "",
         auth_style: str = "",
+        api_version: str = "2024-08-01-preview",
         passing_score: int = 4,
         temperature: float = 0.0,
     ):
@@ -1002,6 +1017,7 @@ class LLMGrade(AsyncAssertion):
         self.base_url = (base_url or cfg.base_url or "https://api.openai.com/v1").rstrip("/")
         self.api_key = api_key or cfg.api_key
         self.auth_style = auth_style or cfg.auth_style or "bearer"
+        self._api_version = api_version
         self.passing_score = passing_score
         self.temperature = temperature
 
@@ -1051,6 +1067,18 @@ class LLMGrade(AsyncAssertion):
             headers["api-key"] = self.api_key
         else:
             headers["Authorization"] = f"Bearer {self.api_key}"
+
+        # Merge global extra_headers
+        from litmusai.globals import get_config
+        cfg = get_config()
+        if cfg.extra_headers:
+            headers.update(cfg.extra_headers)
+
+        # Azure requires api-version query param
+        if self.auth_style == "azure":
+            api_version = getattr(self, "_api_version", "2024-08-01-preview")
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}api-version={api_version}"
 
         try:
             async with httpx.AsyncClient(timeout=60) as client:
