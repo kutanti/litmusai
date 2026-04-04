@@ -601,7 +601,21 @@ def _print_scan_report(report: object) -> None:
     "--html", default=None,
     help="Generate HTML report at this path",
 )
-def report(results: str, baseline: str | None, html: str | None) -> None:
+@click.option(
+    "--junit", default=None,
+    help="Generate JUnit XML report at this path",
+)
+@click.option(
+    "--csv", "csv_path", default=None,
+    help="Generate CSV report at this path",
+)
+def report(
+    results: str,
+    baseline: str | None,
+    html: str | None,
+    junit: str | None,
+    csv_path: str | None,
+) -> None:
     """Generate a report from saved results."""
     from litmusai.ci import format_report
     from litmusai.ci import load_baseline as load_bl
@@ -634,6 +648,27 @@ def report(results: str, baseline: str | None, html: str | None) -> None:
         console.print(
             f"📊 [bold green]HTML report saved to {path}[/bold green]"
         )
+
+    # JUnit XML
+    if junit:
+        from litmusai.exports import to_junit_xml
+
+        path = to_junit_xml(data, junit)
+        console.print(
+            f"📋 [bold green]JUnit XML saved to {path}[/bold green]"
+        )
+
+    # CSV
+    if csv_path:
+        from litmusai.exports import to_csv
+
+        path = to_csv(data, csv_path)
+        console.print(
+            f"📄 [bold green]CSV saved to {path}[/bold green]"
+        )
+
+    # If only export flags were given (no markdown needed), return
+    if (html or junit or csv_path) and not baseline:
         return
 
     baseline_data = None

@@ -81,7 +81,19 @@ class TestSuite:
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> TestSuite:
-        """Load a test suite from a YAML file."""
+        """Load a test suite from a YAML file.
+
+        Supports YAML-defined assertions::
+
+            cases:
+              - id: q1
+                task: "What is 6*7?"
+                assertions:
+                  - type: numeric
+                    value: 42
+                  - type: contains
+                    value: "42"
+        """
         path = Path(path)
         with open(path) as f:
             data = yaml.safe_load(f)
@@ -92,7 +104,21 @@ class TestSuite:
         )
 
         for case_data in data.get("cases", []):
-            suite.add_case(TestCase(**case_data))
+            # Parse YAML assertions into Assertion objects
+            raw_assertions = case_data.pop("assertions", None)
+            case = TestCase(**case_data)
+            if raw_assertions is not None:
+                if not isinstance(raw_assertions, list):
+                    msg = (
+                        f"'assertions' must be a list in case "
+                        f"'{case_data.get('id', '?')}', "
+                        f"got {type(raw_assertions).__name__}"
+                    )
+                    raise ValueError(msg)
+                case.assertions = _parse_yaml_assertions(
+                    raw_assertions,
+                )
+            suite.add_case(case)
 
         return suite
 
@@ -135,3 +161,188 @@ class TestSuite:
 
     def __repr__(self) -> str:
         return f"TestSuite(name='{self.name}', cases={len(self.cases)})"
+
+
+# ─── YAML Assertion Parser ──────────────────────────────────────
+
+
+_ASSERTION_TYPES: dict[str, type] = {}
+
+
+def _ensure_registry() -> None:
+    """Lazily populate the assertion type registry."""
+    if _ASSERTION_TYPES:
+        return
+
+    from litmusai.assertions import (
+        All,
+        AnyOf,
+        Contains,
+        Exact,
+        JsonPath,
+        JsonSchema,
+        JsonValid,
+        NotContains,
+        Numeric,
+        RegexMatch,
+    )
+
+    _ASSERTION_TYPES.update({
+        "contains": Contains,
+        "not_contains": NotContains,
+        "notcontains": NotContains,
+        "exact": Exact,
+        "numeric": Numeric,
+        "regex": RegexMatch,
+        "regex_match": RegexMatch,
+        "json_valid": JsonValid,
+        "jsonvalid": JsonValid,
+        "json_schema": JsonSchema,
+        "jsonschema": JsonSchema,
+        "json_path": JsonPath,
+        "jsonpath": JsonPath,
+        "all": All,
+        "any_of": AnyOf,
+        "anyof": AnyOf,
+    })
+
+
+def _parse_single_assertion(spec: dict[str, Any]) -> Any:
+    """Parse a single YAML assertion spec into an Assertion object.
+
+    Supported formats::
+
+        # Simple value-based
+        - type: contains
+          value: "hello"
+
+        # With options
+        - type: contains
+          value: "hello"
+          case_sensitive: true
+
+        # Numeric with tolerance
+        - type: numeric
+          value: 42
+          tolerance: 0.1
+
+        # JSON path
+        - type: json_path
+          path: "$.name"
+          expected: "Alice"
+
+        # JSON schema
+        - type: json_schema
+          schema:
+            type: object
+            required: ["name"]
+
+        # Regex
+        - type: regex
+          pattern: "\\d{3}-\\d{4}"
+
+        # Not contains (list of patterns)
+        - type: not_contains
+          patterns: ["hack", "exploit"]
+
+        # Composite
+        - type: any_of
+          assertions:
+            - type: contains
+              value: "yes"
+            - type: contains
+              value: "correct"
+    """
+    _ensure_registry()
+
+    raw_type = spec.get("type", "")
+    if not isinstance(raw_type, str) or not raw_type.strip():
+        msg = f"Assertion spec missing 'type' or type is not a string: {spec}"
+        raise ValueError(msg)
+    atype = raw_type.lower().strip()
+
+    cls = _ASSERTION_TYPES.get(atype)
+    if cls is None:
+        valid = ", ".join(sorted(_ASSERTION_TYPES.keys()))
+        msg = f"Unknown assertion type '{atype}'. Valid: {valid}"
+        raise ValueError(msg)
+
+    # Build kwargs from spec (excluding 'type')
+    kwargs = {k: v for k, v in spec.items() if k != "type"}
+
+    # Type-specific handling
+    from litmusai.assertions import (
+        All,
+        AnyOf,
+        Contains,
+        Exact,
+        JsonPath,
+        JsonSchema,
+        JsonValid,
+        NotContains,
+        Numeric,
+        RegexMatch,
+    )
+
+    if cls is Contains:
+        patterns = kwargs.get("patterns") or kwargs.get("value", "")
+        if isinstance(patterns, str):
+            patterns = [patterns]
+        return Contains(
+            patterns,
+            mode=kwargs.get("mode", "all"),
+            case_sensitive=kwargs.get("case_sensitive", False),
+        )
+
+    if cls is NotContains:
+        patterns = kwargs.get("patterns") or kwargs.get("value")
+        if isinstance(patterns, str):
+            patterns = [patterns]
+        return NotContains(
+            patterns or [],
+            case_sensitive=kwargs.get("case_sensitive", False),
+        )
+
+    if cls is Exact:
+        return Exact(
+            kwargs.get("value", ""),
+            case_sensitive=kwargs.get("case_sensitive", False),
+            strip=kwargs.get("strip", True),
+        )
+
+    if cls is Numeric:
+        return Numeric(
+            kwargs.get("value", 0),
+            tolerance=kwargs.get("tolerance", 0.01),
+        )
+
+    if cls is RegexMatch:
+        return RegexMatch(kwargs.get("pattern", ""))
+
+    if cls is JsonValid:
+        return JsonValid()
+
+    if cls is JsonSchema:
+        return JsonSchema(kwargs.get("schema", {}))
+
+    if cls is JsonPath:
+        return JsonPath(
+            kwargs.get("path", ""),
+            expected=kwargs.get("expected"),
+            operator=kwargs.get("operator", "eq"),
+        )
+
+    if cls in (All, AnyOf):
+        sub_specs = kwargs.get("assertions", [])
+        sub_assertions = _parse_yaml_assertions(sub_specs)
+        return cls(*sub_assertions)
+
+    # Fallback — try passing kwargs directly
+    return cls(**kwargs)
+
+
+def _parse_yaml_assertions(
+    specs: list[dict[str, Any]],
+) -> list[Any]:
+    """Parse a list of YAML assertion specs."""
+    return [_parse_single_assertion(s) for s in specs]
