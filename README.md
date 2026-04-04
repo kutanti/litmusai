@@ -2,221 +2,200 @@
 
 # 🧪 LitmusAI
 
-### Eval framework for AI agents that actually works
+### The eval framework your AI agents deserve
 
 [![CI](https://github.com/kutanti/litmusai/actions/workflows/ci.yml/badge.svg)](https://github.com/kutanti/litmusai/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/litmuseval)](https://pypi.org/project/litmuseval/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-404%20passing-brightgreen)](https://github.com/kutanti/litmusai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**5,900+ lines of code · 404 tests · 11 assertion types · 46 safety attacks · 5-model benchmarks**
+**15 assertion types · 46 safety attacks · 8 built-in suites · real token costs · one `pip install`**
 
-[Quickstart](#-quickstart) · [Features](#-whats-inside) · [Assertions](#-assertion-engine) · [Examples](#-real-examples) · [Benchmark Results](#-real-benchmark-data)
+[Install](#install) · [Quick Start](#quick-start) · [Features](#features) · [CLI](#cli) · [CI/CD](#cicd)
 
 </div>
 
 ---
 
-## Why?
+## The Problem
 
-You deployed an agent. It works in demos. But:
+Your agent works in demos. But you have no idea if it still works after your last commit. You don't know if Claude is actually better than GPT for your use case — or just 5x more expensive. You can't tell if your prompt change introduced a safety regression. And your "eval" is you manually typing questions into a chat window.
 
-- Does it still work after your last commit?
-- Is Claude actually better than GPT for your use case — or just more expensive?
-- Did your prompt change introduce a safety regression?
-- What's your actual **cost per correct answer**?
+**LitmusAI fixes this.** One function call gives you pass rates, real token costs, latency, safety scores, and regression detection — across any model, any agent framework, any deployment.
 
-LitmusAI answers these with **one function call**.
+```python
+results = await evaluate(agent, suite)
+# ✅ 12/12 passed | 💰 $0.003 | ⚡ 1100ms avg | 🔤 850 tokens
+```
+
+That cost is real — captured from API responses, not estimated from tiktoken.
 
 ---
 
-## ⚡ Quickstart
+## Install
 
 ```bash
 pip install litmuseval
 ```
 
-### 30-second eval
+## Quick Start
 
 ```python
 import asyncio
-from litmusai import Agent, TestSuite, TestCase, Numeric, evaluate
+import litmusai
+from litmusai import Agent, TestSuite, TestCase, Numeric, Contains, evaluate
 
-# 1. Connect your agent (works with any OpenAI-compatible API)
-agent = Agent.from_openai_chat(
-    base_url="https://api.openai.com/v1",
-    api_key="sk-...",
-    model="gpt-4o",
-)
+litmusai.configure(api_key="sk-...")
 
-# 2. Define tests with real assertions (not just substring matching)
-suite = TestSuite(name="math-eval")
+agent = Agent.from_openai_chat(model="gpt-4o")
+
+suite = TestSuite(name="basics")
 suite.add_case(TestCase(
-    id="q1", name="Percentage",
+    id="math", name="Percentage",
     task="What is 15% of 240?",
     assertions=[Numeric(36, tolerance=0.01)],
 ))
+suite.add_case(TestCase(
+    id="fact", name="Factual",
+    task="Who wrote 1984?",
+    assertions=[Contains(["Orwell"])],
+))
 
-# 3. Run
 results = asyncio.run(evaluate(agent, suite))
-print(results)
-# ✅ 1/1 passed | 💰 $0.0003 | ⚡ 1200ms avg | 🔤 47 tokens
+# ✅ 2/2 passed | 💰 $0.0005 | ⚡ 1100ms avg
 ```
 
-**That `$0.0003` is real** — not an estimate. `from_openai_chat` captures actual token usage from the API response.
+Real token counts. Real cost. Not estimates.
 
 ---
 
-## 🔧 What's Inside
+## Features
 
-### 1. Universal Agent Adapter
+### Agent Adapters
 
-Connect **any** agent — function, API, or framework:
+Connect any agent with one line:
 
 ```python
-# Any OpenAI-compatible API (OpenAI, Anthropic via proxy, LiteLLM, Ollama, vLLM)
-agent = Agent.from_openai_chat(base_url="...", api_key="...", model="gpt-4o")
-
-# Plain async function
-agent = Agent.from_function(my_async_fn, name="my-agent")
-
-# HTTP endpoint
-agent = Agent.from_url("http://localhost:8000/chat")
-
-# LangChain
-agent = Agent.from_langchain(my_chain)
-
-# CrewAI
-agent = Agent.from_crewai(my_crew)
-
-# Any callable
-agent = Agent.from_callable(obj_with_call_method)
+Agent.from_openai_chat(model="gpt-4o")           # OpenAI / compatible APIs
+Agent.from_azure(resource="r", deployment="d")     # Azure OpenAI
+Agent.from_function(my_fn)                         # Async function
+Agent.from_url("http://localhost:8000/chat")        # HTTP endpoint
+Agent.from_langchain(chain)                        # LangChain
+Agent.from_crewai(crew)                            # CrewAI
 ```
 
-`from_openai_chat` is the recommended path — it automatically captures **real token counts and cost** from the API response. No guessing.
-
-### 2. Assertion Engine (11 Types)
-
-The heart of the framework. **Composable, type-safe scoring** that goes way beyond substring matching:
+### Assertions (15 types)
 
 ```python
-from litmusai import (
-    Numeric, Contains, NotContains, Exact, RegexMatch,
-    JsonSchema, JsonPath, JsonValid,
-    Semantic, LLMGrade, Custom,
-    All, AnyOf, AtLeast, Weighted,
-)
+# Basics
+Numeric(36, tolerance=0.01)              # extracts numbers, handles "thirty-six"
+Contains(["Paris", "France"], mode="all")
+NotContains(["hack", "exploit"])
+Exact("yes")
+RegexMatch(r"\d{4}-\d{2}-\d{2}")
 
-# ── String assertions ──────────────────────────────
-Exact("Paris")                            # exact match
-Contains(["Orwell", "1949"], mode="all")  # all must appear
-NotContains(["hack", "exploit"])          # must NOT appear
-RegexMatch(r"\b\d{4}-\d{2}-\d{2}\b")     # date format
-
-# ── Numeric ────────────────────────────────────────
-Numeric(36, tolerance=0.01)               # extracts numbers from text
-Numeric(36)                               # handles "thirty-six" too
-
-# ── Structured ─────────────────────────────────────
-JsonValid()                               # valid JSON (handles ```json fences)
-JsonSchema({"type": "object", "required": ["name", "age"]})
-JsonPath("user.name", "Alice")            # check nested values
+# Structured
+JsonValid()                              # handles ```json fences
+JsonSchema({"type": "object", "required": ["name"]})
 JsonPath("items[0].price", 10, operator="gt")
 
-# ── AI-powered ─────────────────────────────────────
-Semantic("The answer is 36", threshold=0.85)  # embedding similarity
-LLMGrade("Is the math correct?", model="gpt-4o-mini")
+# AI-powered
+Semantic("The capital of France", threshold=0.85)
+LLMGrade("Is this factually correct?")
 
-# ── Custom ─────────────────────────────────────────
-Custom(lambda r: len(r.split()) >= 10, name="min_words")
-Custom(lambda r: "def " in r and "return" in r, name="has_function")
+# Compose
+All(Numeric(36), NotContains(["sorry"]))
+AnyOf(Exact("36"), Numeric(36))
+Weighted([(Numeric(36), 0.7), (Contains(["because"]), 0.3)], threshold=0.6)
 ```
 
-#### Compose them
+### Safety Scanner
 
-```python
-# All must pass
-All(Numeric(36), NotContains(["sorry", "I can't"]))
-
-# Any one is enough
-AnyOf(Exact("36"), Numeric(36), Contains(["thirty-six"]))
-
-# At least 2 of 3
-AtLeast(2, [Exact("36"), Numeric(36), Contains(["36"])])
-
-# Weighted scoring (no hard pass/fail)
-Weighted([
-    (Numeric(36), 0.6),           # 60% weight on correctness
-    (NotContains(["sorry"]), 0.2), # 20% on confidence
-    (Custom(lambda r: len(r) > 10, name="detail"), 0.2),
-], threshold=0.7)
-```
-
-### 3. Safety Scanner (46 Attacks)
-
-Red-team your agent automatically:
+46 attacks across 7 categories — prompt injection, jailbreak, PII leak, bias, hallucination, toxicity, data exfiltration:
 
 ```python
 from litmusai.safety import SafetyScanner
 
-scanner = SafetyScanner(depth="standard")  # "basic" | "standard" | "thorough"
-report = await scanner.scan(agent)
-
-print(f"Score: {report.safety_score}/100")
-print(f"Verdict: {'✅ SAFE' if report.is_safe else '❌ UNSAFE'}")
-
-# Category breakdown
-for cat, stats in report.categories.items():
-    print(f"  {cat}: {stats.passed}/{stats.total}")
+report = await SafetyScanner(depth="standard").scan(agent)
+print(f"{report.safety_score}/100 — {'SAFE' if report.is_safe else 'UNSAFE'}")
 ```
 
-**Attack categories:** Prompt injection (8), Jailbreak (6), PII leak (5), Harmful content (5), Hallucination (5), Bias (5), Data exfiltration (3), Over-reliance (5)
-
-Refusal detection built in — an agent that says *"I can't reveal my system prompt"* won't be flagged as a failure.
-
-### 4. Cost & Latency Benchmarking
-
-Real token-level cost tracking, not estimates:
+### Cost Tracking
 
 ```python
-from litmusai.benchmarks import CostTracker, compare_models, register_pricing
+from litmusai.benchmarks import register_pricing
 
-# Register pricing ($/million tokens)
 register_pricing("gpt-4o", input_cost=2.50, output_cost=10.0)
-register_pricing("claude-sonnet-4", input_cost=3.0, output_cost=15.0)
-
-# Track across runs
-tracker = CostTracker(model="gpt-4o", agent_name="GPT-4o")
-tracker.record("q1", task_name="Math", latency_ms=1200,
-               passed=True, score=1.0, input_tokens=22, output_tokens=15)
-
-# Compare models
-comparison = compare_models(tracker_gpt, tracker_claude)
-print(comparison.to_markdown())
+results = await evaluate(agent, suite)
+print(f"${results.total_cost:.4f}")  # real token-level cost
 ```
 
-### 5. LLM-as-Judge
-
-Use an LLM to grade responses on criteria you define:
+### Multi-Run Statistics
 
 ```python
-from litmusai.scorers import LLMJudge
+from litmusai import multi_evaluate
 
-judge = LLMJudge(
-    provider="openai",
-    model="gpt-4o-mini",
-    criteria=["correctness", "helpfulness", "safety"],
-)
-result = await judge.score(
-    task="Explain quantum computing",
-    response=agent_response,
-)
-print(f"Score: {result.score}/5 — {result.reason}")
+stats = await multi_evaluate(agent, suite, runs=5)
+# mean ± std dev per case, flaky test detection
 ```
 
-### 6. CI/CD Integration
+### HTML Reports
 
-Catch regressions before they ship:
+```bash
+litmus report --html report.html --log-dir ./eval-logs/
+```
+
+Interactive dark-theme report with sorting, filtering, and drill-down details.
+
+### Global Config
+
+```python
+import litmusai
+
+# Set once — all assertions and agents use these defaults
+litmusai.configure(
+    api_key="sk-...",
+    base_url="https://api.openai.com/v1",
+)
+
+# Azure
+litmusai.configure(api_key="azure-key", auth_style="azure")
+agent = Agent.from_azure(resource="my-resource", deployment="gpt-4o")
+```
+
+### Retry & Tracing
+
+```python
+from litmusai.retry import with_retry, RetryConfig
+from litmusai.tracing import Tracer
+
+result = await with_retry(agent.run, task, config=RetryConfig(max_retries=3))
+
+tracer = Tracer()
+with tracer.span("eval") as s:
+    result = await agent.run(task)
+tracer.save("trace.json")
+```
+
+---
+
+## CLI
+
+```bash
+litmus run --suite coding --agent my_agent:agent    # run eval
+litmus scan --agent my_agent:agent --depth thorough  # safety scan
+litmus diff --before run1.json --after run2.json     # compare runs
+litmus history --log-dir ./eval-logs/                # list past runs
+litmus report --html report.html --junit results.xml --csv results.csv
+litmus init                                          # scaffold config
+litmus suites                                        # list built-in suites
+```
+
+**8 built-in suites** (50 cases): coding, research, safety, planning, customer_support, summarization, instruction_following, tool_use.
+
+---
+
+## CI/CD
 
 ```yaml
 # .github/workflows/eval.yml
@@ -225,257 +204,43 @@ Catch regressions before they ship:
     agent: my_agent:agent
     suite: coding
     threshold: 0.8
-    format: github
 ```
 
-Regression detection: flags >5% pass rate drops, >50% cost increases, >50% latency spikes.
+Regression detection: flags pass rate drops, cost spikes, latency increases.
 
-### 7. Result Logging
+---
 
-Full audit trail of every evaluation:
+## Config File
 
-```python
-results = await evaluate(agent, suite, log_dir="./eval-logs/")
-# Saves: agent_name, task, response, tokens, cost, score, timestamp
-# as structured JSON for reproducibility
+```yaml
+# .litmus/config.yaml
+suite: coding
+agent: my_agent:agent
+threshold: 0.8
+runs: 3
+log-dir: ./eval-logs
 ```
 
 ---
 
-## 🎯 Real Examples
-
-### Example 1: Compare 5 models
-
-```python
-import asyncio
-from litmusai import Agent, TestSuite, TestCase, Numeric, Contains, evaluate
-from litmusai.benchmarks import register_pricing
-
-# Register pricing
-register_pricing("gpt-4o", 2.50, 10.0)
-register_pricing("gpt-4.1", 2.0, 8.0)
-register_pricing("claude-sonnet-4", 3.0, 15.0)
-
-# Create agents
-models = {
-    "GPT-4o": Agent.from_openai_chat(
-        base_url="https://api.openai.com/v1",
-        api_key="sk-...", model="gpt-4o",
-    ),
-    "GPT-4.1": Agent.from_openai_chat(
-        base_url="https://api.openai.com/v1",
-        api_key="sk-...", model="gpt-4.1",
-    ),
-    "Claude Sonnet": Agent.from_openai_chat(
-        base_url="https://api.anthropic.com/v1",
-        api_key="sk-...", model="claude-sonnet-4-20250514",
-    ),
-}
-
-# Test suite
-suite = TestSuite(name="benchmark")
-suite.add_case(TestCase(
-    id="math", name="Math", task="What is 15% of 240?",
-    assertions=[Numeric(36, tolerance=0.01)],
-))
-suite.add_case(TestCase(
-    id="fact", name="Factual", task="Who wrote 1984?",
-    assertions=[Contains(["Orwell", "1949"], mode="all")],
-))
-
-# Run all
-async def main():
-    for name, agent in models.items():
-        results = await evaluate(agent, suite, verbose=True)
-        print(f"{name}: {results.pass_rate:.0%} | ${results.total_cost:.4f}")
-
-asyncio.run(main())
-```
-
-### Example 2: Safety scan before deploy
-
-```python
-from litmusai import Agent
-from litmusai.safety import SafetyScanner
-
-agent = Agent.from_openai_chat(
-    base_url="https://api.openai.com/v1",
-    api_key="sk-...", model="gpt-4o",
-    system_prompt="You are a helpful customer service agent.",
-)
-
-scanner = SafetyScanner(depth="thorough")
-report = await scanner.scan(agent)
-
-assert report.is_safe, f"Safety score: {report.safety_score}/100"
-assert len(report.critical_failures) == 0, "Critical vulnerabilities found!"
-```
-
-### Example 3: JSON API validation
-
-```python
-from litmusai import (
-    Agent, TestSuite, TestCase,
-    All, JsonValid, JsonSchema, JsonPath, evaluate,
-)
-
-suite = TestSuite(name="api-tests")
-suite.add_case(TestCase(
-    id="planets", name="Structured output",
-    task="Return the 3 largest planets as a JSON array with name and diameter_km",
-    assertions=[All(
-        JsonValid(),
-        JsonSchema({
-            "type": "array", "minItems": 3,
-            "items": {
-                "type": "object",
-                "required": ["name", "diameter_km"],
-            },
-        }),
-        JsonPath("0.name", "Jupiter"),
-    )],
-))
-
-results = await evaluate(agent, suite)
-```
-
-### Example 4: Weighted scoring for nuance
-
-```python
-from litmusai import TestCase, Numeric, NotContains, Custom, Weighted
-
-TestCase(
-    id="explain", name="Explain well",
-    task="Explain why the sky is blue",
-    assertions=[Weighted([
-        # 50% — mentions Rayleigh scattering
-        (Contains(["scatter", "rayleigh", "wavelength"], mode="any"), 0.5),
-        # 30% — doesn't refuse or hedge
-        (NotContains(["I'm not sure", "I can't"]), 0.3),
-        # 20% — substantive answer (>50 words)
-        (Custom(lambda r: len(r.split()) >= 50, name="length"), 0.2),
-    ], threshold=0.7)],
-)
-```
-
----
-
-## 📊 Real Benchmark Data
-
-We benchmarked 5 models on 6 tasks with **real token counts** (not estimates):
-
-| Model | Pass Rate | Real Tokens | Real Cost | Cost/Pass | Avg Latency |
-|-------|-----------|------------|-----------|-----------|-------------|
-| **GPT-4.1** | **100%** | 501 | $0.0031 | **$0.0005** 🏆 | 2,269ms |
-| **GPT-4o** | **100%** | 575 | $0.0046 | $0.0008 | **1,616ms** ⚡ |
-| Claude Sonnet 4 | 100% | 848 | $0.0109 | $0.0018 | 3,794ms |
-| Claude Opus 4 | 83% | 691 | $0.0427 | $0.0085 | 2,888ms |
-| Gemini 2.5 Pro | 50% | 166 | $0.0010 | $0.0003* | 7,263ms |
-
-<sup>*Gemini is cheap but only 50% pass rate on our test suite.</sup>
-
-**Key finding:** Claude Opus costs **14x more than GPT-4.1** per correct answer, with lower accuracy. This is the kind of insight that saves real money.
-
-*Generated with `examples/e2e_test.py` — run it yourself with your own API keys.*
-
----
-
-## 🏗️ Architecture
-
-```
-litmusai/
-├── assertions/      # 11 assertion types + 4 composites (1,400 lines)
-├── core/
-│   ├── agent.py     # Universal agent adapter — 7 factory methods (750 lines)
-│   ├── runner.py     # Async eval runner with concurrency + logging (300 lines)
-│   ├── scorer.py     # Assertion-aware scoring engine (220 lines)
-│   └── suite.py      # Test suite management + YAML (130 lines)
-├── safety/          # Red-team scanner — 46 attacks (800 lines)
-├── scorers/         # LLM-as-Judge engine (640 lines)
-├── benchmarks/      # Cost tracking + model comparison (620 lines)
-├── ci/              # CI/CD regression detection (500 lines)
-├── cli/             # CLI commands (350 lines)
-└── suites/          # Built-in test suites (YAML)
-    ├── coding/
-    ├── research/
-    ├── planning/
-    └── safety/
-```
-
-**5,900+ lines of code · 404 tests · 22 source files**
-
----
-
-## 🚀 Getting Started
-
-### Install
-
-```bash
-pip install litmuseval
-```
-
-### Dev setup
+## Development
 
 ```bash
 git clone https://github.com/kutanti/litmusai.git
-cd litmusai
-pip install -e ".[dev]"
-pytest                    # 404 tests
+cd litmusai && pip install -e ".[dev]"
+pytest                    # 641 tests
 ruff check src/ tests/    # lint
-mypy src/litmusai/        # type check
-```
-
-### CLI
-
-```bash
-litmus run --suite coding --agent my_agent:agent
-litmus run --suite research --agent my_agent:agent --format markdown
+mypy src/litmusai/        # types
 ```
 
 ---
 
-## 🗺️ Roadmap
+## License
 
-- [x] Universal agent adapter (7 factory methods)
-- [x] Assertion engine (11 types + 4 composites)
-- [x] Scoring pipeline (assertions wired into runner)
-- [x] Safety scanner (46 attacks, 3 depths)
-- [x] Cost & latency benchmarking (real tokens)
-- [x] LLM-as-Judge scoring
-- [x] CI/CD regression detection
-- [x] Result logging (JSON)
-- [ ] PyPI publish (`pip install litmuseval`)
-- [ ] Multiple runs with statistical reporting
-- [ ] HTML reports
-- [ ] Expanded test suites (50+ per domain)
-
----
-
-## 🤝 Contributing
-
-PRs welcome! See the [open issues](https://github.com/kutanti/litmusai/issues).
-
-```bash
-git clone https://github.com/kutanti/litmusai.git
-cd litmusai
-pip install -e ".[dev]"
-pytest && ruff check src/ tests/ && mypy src/litmusai/
-```
-
-All changes go through PR review with automated CI (ruff, pytest, mypy across Python 3.10-3.12).
-
----
-
-## 📜 License
-
-MIT — see [LICENSE](LICENSE).
-
----
+MIT
 
 <div align="center">
 
-**Built by [Kunal Tanti](https://github.com/kutanti)**
-
-If this helps you ship better agents, give it a ⭐
+**[kutanti/litmusai](https://github.com/kutanti/litmusai)** · If this helps you ship better agents, give it a ⭐
 
 </div>
