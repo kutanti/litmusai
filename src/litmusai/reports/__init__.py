@@ -1,7 +1,7 @@
 """HTML report generator for LitmusAI evaluation results.
 
-Renders results as a self-contained HTML file with interactive
-tables, charts, and filtering — no external dependencies.
+Renders results as a self-contained HTML file with summary
+cards, tables, and filtering — no external dependencies.
 
 Usage::
 
@@ -12,8 +12,21 @@ Usage::
 
 from __future__ import annotations
 
+import html
+import re
 from pathlib import Path
 from typing import Any
+
+
+def _esc(text: str) -> str:
+    """HTML-escape text content."""
+    return html.escape(str(text), quote=True)
+
+
+def _safe_id(raw: str) -> str:
+    """Derive a safe DOM id from a case id."""
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", str(raw))
+
 
 _TEMPLATE = """\
 <!DOCTYPE html>
@@ -199,9 +212,9 @@ footer a {{ color: var(--blue); text-decoration: none; }}
 <h2>Test Results</h2>
 
 <div class="filter-bar">
-    <button class="filter-btn active" onclick="filterTests('all')">All ({total})</button>
-    <button class="filter-btn" onclick="filterTests('pass')">✅ Passed ({passed})</button>
-    <button class="filter-btn" onclick="filterTests('fail')">❌ Failed ({failed})</button>
+    <button class="filter-btn active" onclick="filterTests('all', this)">All ({total})</button>
+    <button class="filter-btn" onclick="filterTests('pass', this)">✅ Passed ({passed})</button>
+    <button class="filter-btn" onclick="filterTests('fail', this)">❌ Failed ({failed})</button>
 </div>
 
 <table id="results-table">
@@ -225,47 +238,52 @@ footer a {{ color: var(--blue); text-decoration: none; }}
 </footer>
 
 <script>
-function filterTests(type) {{
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-    event.target.classList.add('active');
-    document.querySelectorAll('#results-table tbody tr.result-row').forEach(row => {{
-        const status = row.dataset.status;
+function filterTests(type, btn) {{
+    document.querySelectorAll('.filter-btn').forEach(function(b) {{
+        b.classList.remove('active');
+    }});
+    if (btn) btn.classList.add('active');
+    document.querySelectorAll('#results-table tbody tr.result-row').forEach(function(row) {{
+        var status = row.dataset.status;
         row.style.display = (type === 'all' || type === status) ? '' : 'none';
-        const detail = row.nextElementSibling;
+        var detail = row.nextElementSibling;
         if (detail && detail.classList.contains('detail-row')) {{
             detail.classList.remove('open');
         }}
     }});
 }}
 
-function toggleDetail(id) {{
-    document.getElementById('detail-' + id).classList.toggle('open');
+function toggleDetail(safeId) {{
+    var el = document.getElementById('detail-' + safeId);
+    if (el) el.classList.toggle('open');
 }}
 
 function sortTable(col) {{
-    const table = document.getElementById('results-table');
-    const tbody = table.querySelector('tbody');
-    const rows = Array.from(tbody.querySelectorAll('tr.result-row'));
-    const details = {{}};
-    rows.forEach(r => {{
-        const next = r.nextElementSibling;
+    var table = document.getElementById('results-table');
+    var tbody = table.querySelector('tbody');
+    var rows = Array.prototype.slice.call(
+        tbody.querySelectorAll('tr.result-row')
+    );
+    var details = {{}};
+    rows.forEach(function(r) {{
+        var next = r.nextElementSibling;
         if (next && next.classList.contains('detail-row')) {{
-            details[r.dataset.id] = next;
+            details[r.dataset.safeid] = next;
         }}
     }});
-    const dir = table.dataset.sortDir === 'asc' ? 'desc' : 'asc';
+    var dir = table.dataset.sortDir === 'asc' ? 'desc' : 'asc';
     table.dataset.sortDir = dir;
-    rows.sort((a, b) => {{
-        let va = a.cells[col].textContent.trim();
-        let vb = b.cells[col].textContent.trim();
-        const na = parseFloat(va), nb = parseFloat(vb);
+    rows.sort(function(a, b) {{
+        var va = a.cells[col].dataset.value || a.cells[col].textContent.trim();
+        var vb = b.cells[col].dataset.value || b.cells[col].textContent.trim();
+        var na = parseFloat(va), nb = parseFloat(vb);
         if (!isNaN(na) && !isNaN(nb)) return dir === 'asc' ? na - nb : nb - na;
         return dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
     }});
     tbody.innerHTML = '';
-    rows.forEach(r => {{
+    rows.forEach(function(r) {{
         tbody.appendChild(r);
-        if (details[r.dataset.id]) tbody.appendChild(details[r.dataset.id]);
+        if (details[r.dataset.safeid]) tbody.appendChild(details[r.dataset.safeid]);
     }});
 }}
 </script>
@@ -292,28 +310,29 @@ def _make_row(idx: int, r: dict[str, Any]) -> str:
     latency = r.get("latency_ms", 0)
     cost = r.get("cost", 0)
     case_id = r.get("case_id", f"case_{idx}")
-    case_name = r.get("case_name", case_id)
-    reason = r.get("score_reason", "")
-    response = r.get("response", "")[:500]
-    task = r.get("task", "")[:200]
+    safe_id = _safe_id(case_id)
+    case_name = _esc(r.get("case_name", case_id))
+    reason = _esc(r.get("score_reason", ""))
+    response = _esc(str(r.get("response", ""))[:500])
+    task = _esc(str(r.get("task", ""))[:200])
 
     row = (
         f'<tr class="result-row" data-status="{"pass" if passed else "fail"}" '
-        f'data-id="{case_id}">'
-        f'<td class="expand" onclick="toggleDetail(\'{case_id}\')">▸</td>'
+        f'data-safeid="{safe_id}">'
+        f'<td class="expand" onclick="toggleDetail(\'{safe_id}\')">▸</td>'
         f"<td>{case_name}</td>"
         f'<td><span class="{status_cls}">{status_txt}</span></td>'
-        f"<td>"
+        f'<td data-value="{score:.4f}">'
         f'<span class="score-bar"><span class="fill" '
         f'style="width:{score_pct}%;background:var(--{color})"></span></span>'
         f"{score:.2f}</td>"
-        f"<td>{latency:.0f}ms</td>"
-        f"<td>${cost:.4f}</td>"
+        f'<td data-value="{latency:.1f}">{latency:.0f}ms</td>'
+        f'<td data-value="{cost:.6f}">${cost:.4f}</td>'
         f"</tr>"
     )
 
     detail = (
-        f'<tr class="detail-row" id="detail-{case_id}">'
+        f'<tr class="detail-row" id="detail-{safe_id}">'
         f"<td colspan=\"6\">"
         f"<strong>Task:</strong> {task}<br>"
         f"<strong>Reason:</strong> {reason}<br>"
@@ -358,11 +377,13 @@ def render_html(
     total_in = summary.get("total_input_tokens", 0)
     total_out = summary.get("total_output_tokens", 0)
 
-    html = _TEMPLATE.format(
-        title=f"{data.get('agent_name', 'Agent')} — "
-              f"{data.get('suite_name', 'Suite')}",
-        subtitle=f"Agent: {data.get('agent_name', '?')} · "
-                 f"Suite: {data.get('suite_name', '?')} · "
+    agent_name = _esc(data.get("agent_name", "Agent"))
+    suite_name = _esc(data.get("suite_name", "Suite"))
+
+    html_out = _TEMPLATE.format(
+        title=f"{agent_name} — {suite_name}",
+        subtitle=f"Agent: {agent_name} · "
+                 f"Suite: {suite_name} · "
                  f"{total} tests",
         pass_rate=f"{pass_rate_val:.0%}",
         pass_pct=f"{pass_pct:.0f}",
@@ -377,8 +398,8 @@ def render_html(
         input_tokens=f"{total_in:,}",
         output_tokens=f"{total_out:,}",
         rows=rows_html,
-        timestamp=data.get("timestamp", ""),
+        timestamp=_esc(data.get("timestamp", "")),
     )
 
-    output_path.write_text(html)
+    output_path.write_text(html_out)
     return output_path

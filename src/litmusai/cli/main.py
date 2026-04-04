@@ -601,6 +601,11 @@ def report(results: str, baseline: str | None, html: str | None) -> None:
     if html:
         from litmusai.reports import render_html
 
+        if baseline:
+            console.print(
+                "[yellow]Note: --baseline is ignored "
+                "with --html[/yellow]"
+            )
         path = render_html(data, html)
         console.print(
             f"📊 [bold green]HTML report saved to {path}[/bold green]"

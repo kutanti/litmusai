@@ -177,6 +177,35 @@ class TestRenderHtml:
         html = path.read_text()
         assert "kutanti/litmusai" in html
 
+    def test_xss_protection(self, tmp_path):
+        """User-controlled text must be HTML-escaped."""
+        data = _make_data(agent='<script>alert("xss")</script>')
+        data["results"][0]["case_name"] = '<img onerror="alert(1)">'
+        data["results"][0]["response"] = '"><script>evil</script>'
+        path = render_html(data, tmp_path / "report.html")
+        html_content = path.read_text()
+        # Raw tags must NOT appear
+        assert "<script>alert" not in html_content
+        assert '<img onerror' not in html_content
+        # Escaped versions should appear
+        assert "&lt;script&gt;" in html_content
+
+    def test_safe_dom_ids(self, tmp_path):
+        """Case IDs with special chars must produce safe DOM IDs."""
+        data = _make_data(n_pass=1, n_fail=0)
+        data["results"][0]["case_id"] = "test case/with spaces&quotes"
+        path = render_html(data, tmp_path / "report.html")
+        html_content = path.read_text()
+        # Should not contain raw special chars in IDs
+        assert 'id="detail-test_case' in html_content
+
+    def test_sort_data_values(self, tmp_path):
+        """Cost and latency cells should have data-value for sorting."""
+        data = _make_data()
+        path = render_html(data, tmp_path / "report.html")
+        html_content = path.read_text()
+        assert "data-value=" in html_content
+
 
 class TestCliHtml:
     def test_report_html_flag(self):
