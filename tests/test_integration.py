@@ -37,7 +37,11 @@ def _get_agent():
     """Create an agent using available API credentials."""
     from litmusai import Agent
 
-    base_url = os.getenv("LITELLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+    base_url = (
+        os.getenv("LITELLM_BASE_URL")
+        or os.getenv("OPENAI_BASE_URL")
+        or "https://api.openai.com/v1"
+    )
     api_key = (
         os.getenv("LITELLM_API_KEY")
         or os.getenv("OPENAI_API_KEY")
@@ -120,8 +124,8 @@ class TestRealAgent:
         suite = TestSuite(name="integration-multi")
         suite.add_case(TestCase(
             id="q1",
-            name="Factual",
-            task="Is water wet? Answer yes or no.",
+            name="Even number",
+            task="Is 2 an even number? Answer yes or no.",
             assertions=[Contains("yes")],
         ))
 

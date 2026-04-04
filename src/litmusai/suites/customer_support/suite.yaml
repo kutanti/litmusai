@@ -1,4 +1,4 @@
-name: customer-support
+name: customer_support
 description: Evaluate customer support agent quality — empathy, accuracy, and policy adherence.
 
 cases:

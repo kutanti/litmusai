@@ -1,4 +1,4 @@
-name: instruction-following
+name: instruction_following
 description: Test whether an agent follows specific formatting and behavioral instructions.
 
 cases:

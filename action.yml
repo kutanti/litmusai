@@ -104,8 +104,8 @@ runs:
           ARGS="$ARGS --runs ${{ inputs.runs }}"
         fi
 
-        if [ -n "${{ inputs.log-dir }}" ]; then
-          ARGS="$ARGS --log-dir ${{ inputs.log-dir }}"
+        if [ -n "${{ inputs['log-dir'] }}" ]; then
+          ARGS="$ARGS --log-dir ${{ inputs['log-dir'] }}"
         fi
 
         # Capture exit code — don't swallow failures

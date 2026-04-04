@@ -1,4 +1,4 @@
-name: tool-use
+name: tool_use
 description: Evaluate tool/function calling ability — correct tool selection, parameter extraction, and result interpretation.
 
 cases:

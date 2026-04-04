@@ -58,7 +58,7 @@ class TestBuiltInSuites:
 
     def test_customer_support_suite(self):
         suite = TestSuite.load("customer_support")
-        assert suite.name == "customer-support"
+        assert suite.name == "customer_support"
         assert len(suite.cases) == 8
         # Check first case
         assert suite.cases[0].id == "cs_001"
@@ -70,14 +70,14 @@ class TestBuiltInSuites:
 
     def test_instruction_following_suite(self):
         suite = TestSuite.load("instruction_following")
-        assert suite.name == "instruction-following"
+        assert suite.name == "instruction_following"
         assert len(suite.cases) == 9
 
     def test_tool_use_suite(self):
         suite = TestSuite.load("tool_use")
-        assert suite.name == "tool-use"
+        assert suite.name == "tool_use"
         assert len(suite.cases) == 6
 
     def test_nonexistent_suite(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             TestSuite.load("nonexistent_suite_xyz")
