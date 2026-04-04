@@ -52,6 +52,7 @@ class PipelineResult:
     report_path: str | None = None
     baseline_diff: Any = None  # DiffSummary
     duration_ms: float = 0.0
+    threshold: float = 0.5
 
     def summary(self) -> str:
         """One-line summary of the full pipeline run."""
@@ -78,13 +79,22 @@ class PipelineResult:
     @property
     def passed(self) -> bool:
         """True if eval passed threshold AND safety passed (if enabled)."""
-        eval_ok = self.eval.pass_rate >= 0.5  # default threshold
+        eval_ok = self.eval.pass_rate >= self.threshold
         safety_ok = self.safety.is_safe if self.safety else True
         return eval_ok and safety_ok
 
 
 class Pipeline:
     """Chain eval + safety + report in one call.
+
+    Orchestrates the full evaluation workflow:
+    ``evaluate()`` / ``multi_evaluate()`` → ``SafetyScanner`` →
+    baseline ``diff_results()`` → report generation.
+
+    Cost tracking is handled automatically by the underlying
+    ``evaluate()`` call when model pricing is registered.
+    LLM-as-judge scoring is available via assertions
+    (``LLMGrade``) on individual test cases.
 
     Args:
         agent: The agent to evaluate.
@@ -134,7 +144,7 @@ class Pipeline:
     ):
         self.agent = agent
         self.scorer = scorer
-        self.concurrency = concurrency
+        self.concurrency = max(1, concurrency)
         self.safety = safety
         self.safety_depth = safety_depth
         self.runs = max(1, runs)
@@ -171,6 +181,14 @@ class Pipeline:
 
         if self.runs > 1:
             from litmusai.core.runner import multi_evaluate
+
+            if self.log_dir:
+                import warnings
+                warnings.warn(
+                    "log_dir is not supported with multi-run (runs > 1). "
+                    "Logs will not be saved.",
+                    stacklevel=2,
+                )
 
             multi_results = await multi_evaluate(
                 self.agent,
@@ -227,10 +245,8 @@ class Pipeline:
             report_path=generated_report_path,
             baseline_diff=baseline_diff,
             duration_ms=duration,
+            threshold=self.threshold,
         )
-
-        # Override threshold from default
-        result._threshold = self.threshold  # type: ignore[attr-defined]
 
         if self.verbose:
             from rich.console import Console

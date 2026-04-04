@@ -79,6 +79,14 @@ class TestPipelineInit:
         assert p.threshold == 0.9
         assert p.concurrency == 3
 
+    def test_concurrency_minimum_1(self):
+        agent = _make_agent()
+        suite = _make_suite()
+        p = Pipeline(agent, suite, concurrency=0)
+        assert p.concurrency == 1
+        p = Pipeline(agent, suite, concurrency=-3)
+        assert p.concurrency == 1
+
     def test_string_suite_resolution(self):
         agent = _make_agent()
         p = Pipeline(agent, "coding")
@@ -92,6 +100,24 @@ class TestPipelineInit:
         assert p.runs == 1
         p = Pipeline(agent, suite, runs=-5)
         assert p.runs == 1
+
+    @pytest.mark.asyncio
+    async def test_threshold_controls_passed(self):
+        agent = _make_agent()
+        suite = _make_suite()
+
+        # Pass rate is 1.0, threshold 0.9 → should pass
+        p = Pipeline(agent, suite, threshold=0.9, verbose=False)
+        result = await p.run()
+        assert result.passed is True
+        assert result.threshold == 0.9
+
+        # Threshold above pass rate → should fail
+        # (our mock always passes, so use 1.1 which is impossible)
+        result2 = await Pipeline(
+            agent, suite, threshold=1.1, verbose=False,
+        ).run()
+        assert result2.passed is False
 
 
 # ─── Pipeline Run ────────────────────────────────────────────────
