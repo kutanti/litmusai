@@ -69,20 +69,6 @@ Real token counts. Real cost. Not estimates.
 
 ---
 
-## Why LitmusAI?
-
-| | LitmusAI | promptfoo | Manual testing |
-|---|---------|-----------|---------------|
-| Agent-native (not just LLM) | ✅ | ❌ | ❌ |
-| Real token cost tracking | ✅ | ❌ | ❌ |
-| Safety red-teaming built in | ✅ | ❌ | ❌ |
-| Works with any framework | ✅ | Partial | ✅ |
-| One-line agent connection | ✅ | ❌ | N/A |
-| Python-native | ✅ | JS/TS | N/A |
-| Open source | ✅ | ⚠️ Acquired | N/A |
-
----
-
 ## Features
 
 ### Agent Adapters
