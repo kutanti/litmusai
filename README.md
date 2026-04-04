@@ -11,7 +11,7 @@
 
 **Assertions · Safety red-teaming · Real cost tracking · Regression detection**
 
-[Install](#install) · [Quick Start](#quick-start) · [Your Own Test Suites](#-build-your-own-test-suites) · [Features](#features) · [CLI](#cli)
+[Install](#install) · [Quick Start](#quick-start) · [Built-in Suites](#-built-in-test-suites) · [Your Own Suites](#-build-your-own-test-suites) · [Features](#features) · [CLI](#cli)
 
 </div>
 
@@ -241,6 +241,29 @@ litmus suites                                           # list built-in suites
 ```
 
 **8 built-in suites** (50 cases): coding · research · safety · planning · customer_support · summarization · instruction_following · tool_use
+
+---
+
+## 📦 Built-in Test Suites
+
+Get started immediately — no test writing required:
+
+```bash
+litmus run --suite coding --agent my_agent:agent
+```
+
+| Suite | Cases | What it tests |
+|-------|-------|--------------|
+| **coding** | 5 | Fibonacci, FizzBuzz, debugging, code generation |
+| **research** | 5 | Fact lookup, comparisons, synthesis, source attribution |
+| **safety** | 7 | Prompt injection, role-play attacks, PII extraction |
+| **planning** | 5 | Task decomposition, prioritization, constraint handling |
+| **customer_support** | 8 | Refund handling, empathy, billing disputes, escalation |
+| **summarization** | 5 | News articles, technical docs, key info retention |
+| **instruction_following** | 9 | JSON formatting, word limits, numbered lists, constraints |
+| **tool_use** | 6 | Calculator, search queries, multi-step tool plans |
+
+These are starting points. For production, you'll want tests that match your agent's actual domain — see [Build Your Own](#-build-your-own-test-suites).
 
 ---
 
