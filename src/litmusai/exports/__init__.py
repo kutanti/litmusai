@@ -90,12 +90,12 @@ def to_junit_xml(
         stdout = ET.SubElement(tc, "system-out")
         stdout.text = str(r.get("response", ""))[:2000]
 
-    # Write
+    # Write with proper XML declaration
     tree = ET.ElementTree(testsuites)
     ET.indent(tree, space="  ")
     tree.write(
         str(output_path),
-        encoding="unicode",
+        encoding="UTF-8",
         xml_declaration=True,
     )
 

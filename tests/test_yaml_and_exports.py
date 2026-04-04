@@ -19,6 +19,13 @@ class TestYamlAssertions:
         result = assertions[0].check("say hello world")
         assert result.passed
 
+    def test_contains_negative(self):
+        """Substring must match fully, not just individual chars."""
+        specs = [{"type": "contains", "value": "cat"}]
+        assertions = _parse_yaml_assertions(specs)
+        result = assertions[0].check("taco")
+        assert not result.passed
+
     def test_not_contains(self):
         specs = [{"type": "not_contains", "patterns": ["hack", "exploit"]}]
         assertions = _parse_yaml_assertions(specs)
@@ -48,6 +55,32 @@ class TestYamlAssertions:
         assertions = _parse_yaml_assertions(specs)
         result = assertions[0].check("hello")
         assert result.passed
+
+    def test_exact_case_insensitive_default(self):
+        """YAML exact assertions should be case-insensitive by default."""
+        specs = [{"type": "exact", "value": "Hello"}]
+        assertions = _parse_yaml_assertions(specs)
+        result = assertions[0].check("hello")
+        assert result.passed
+
+    def test_non_string_type_raises(self):
+        """Non-string type value should raise ValueError."""
+        with pytest.raises(ValueError, match="not a string"):
+            _parse_yaml_assertions([{"type": 123}])
+
+    def test_assertions_not_list_raises(self, tmp_path):
+        """Non-list assertions value in YAML should raise."""
+        suite_yaml = tmp_path / "bad.yaml"
+        suite_yaml.write_text(
+            "name: bad\n"
+            "cases:\n"
+            "  - id: q1\n"
+            "    name: Bad\n"
+            "    task: test\n"
+            "    assertions: not_a_list\n"
+        )
+        with pytest.raises(ValueError, match="must be a list"):
+            TestSuite.from_yaml(suite_yaml)
 
     def test_regex(self):
         specs = [{"type": "regex", "pattern": r"\d{3}-\d{4}"}]

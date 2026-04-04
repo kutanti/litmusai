@@ -648,8 +648,6 @@ def report(
         console.print(
             f"📊 [bold green]HTML report saved to {path}[/bold green]"
         )
-        if not junit and not csv_path:
-            return
 
     # JUnit XML
     if junit:
@@ -659,8 +657,6 @@ def report(
         console.print(
             f"📋 [bold green]JUnit XML saved to {path}[/bold green]"
         )
-        if not csv_path and not html:
-            return
 
     # CSV
     if csv_path:
@@ -670,8 +666,10 @@ def report(
         console.print(
             f"📄 [bold green]CSV saved to {path}[/bold green]"
         )
-        if not html and not junit:
-            return
+
+    # If only export flags were given (no markdown needed), return
+    if (html or junit or csv_path) and not baseline:
+        return
 
     baseline_data = None
     if baseline:

@@ -107,7 +107,14 @@ class TestSuite:
             # Parse YAML assertions into Assertion objects
             raw_assertions = case_data.pop("assertions", None)
             case = TestCase(**case_data)
-            if raw_assertions and isinstance(raw_assertions, list):
+            if raw_assertions is not None:
+                if not isinstance(raw_assertions, list):
+                    msg = (
+                        f"'assertions' must be a list in case "
+                        f"'{case_data.get('id', '?')}', "
+                        f"got {type(raw_assertions).__name__}"
+                    )
+                    raise ValueError(msg)
                 case.assertions = _parse_yaml_assertions(
                     raw_assertions,
                 )
@@ -248,10 +255,11 @@ def _parse_single_assertion(spec: dict[str, Any]) -> Any:
     """
     _ensure_registry()
 
-    atype = spec.get("type", "").lower().strip()
-    if not atype:
-        msg = f"Assertion spec missing 'type': {spec}"
+    raw_type = spec.get("type", "")
+    if not isinstance(raw_type, str) or not raw_type.strip():
+        msg = f"Assertion spec missing 'type' or type is not a string: {spec}"
         raise ValueError(msg)
+    atype = raw_type.lower().strip()
 
     cls = _ASSERTION_TYPES.get(atype)
     if cls is None:
@@ -277,8 +285,12 @@ def _parse_single_assertion(spec: dict[str, Any]) -> Any:
     )
 
     if cls is Contains:
+        patterns = kwargs.get("patterns") or kwargs.get("value", "")
+        if isinstance(patterns, str):
+            patterns = [patterns]
         return Contains(
-            kwargs.get("value", ""),
+            patterns,
+            mode=kwargs.get("mode", "all"),
             case_sensitive=kwargs.get("case_sensitive", False),
         )
 
@@ -294,7 +306,7 @@ def _parse_single_assertion(spec: dict[str, Any]) -> Any:
     if cls is Exact:
         return Exact(
             kwargs.get("value", ""),
-            case_sensitive=kwargs.get("case_sensitive", True),
+            case_sensitive=kwargs.get("case_sensitive", False),
             strip=kwargs.get("strip", True),
         )
 
