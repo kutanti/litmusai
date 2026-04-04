@@ -1,0 +1,57 @@
+name: summarization
+description: Evaluate text summarization quality — conciseness, accuracy, and key information retention.
+
+cases:
+  - id: sum_001
+    name: "News article summary"
+    task: >
+      Summarize this in 2-3 sentences: The European Space Agency announced
+      today that its Mars rover has discovered evidence of ancient microbial
+      life in rock samples collected from Jezero Crater. The findings, published
+      in Nature, show organic molecules and mineral structures consistent with
+      biological activity dating back approximately 3.5 billion years. Scientists
+      caution that further analysis is needed to rule out non-biological explanations.
+    expected_contains:
+      - "Mars"
+
+  - id: sum_002
+    name: "Technical document summary"
+    task: >
+      Summarize this in one paragraph: Transformer models use self-attention
+      mechanisms to process sequential data in parallel, unlike RNNs which
+      process tokens sequentially. The attention mechanism computes weighted
+      sums of all input positions, allowing the model to capture long-range
+      dependencies efficiently. This architecture forms the basis of modern
+      large language models including GPT, BERT, and T5.
+    expected_contains:
+      - "attention"
+
+  - id: sum_003
+    name: "Meeting notes summary"
+    task: >
+      Summarize the key decisions from these meeting notes: Attendees: Alice, Bob, Carol.
+      Topic 1: Q2 budget approved at $500K. Topic 2: New hire starting June 1.
+      Topic 3: Product launch delayed to September. Action items: Bob to update timeline,
+      Carol to send offer letter, Alice to notify stakeholders about delay.
+    expected_contains:
+      - "budget"
+
+  - id: sum_004
+    name: "Conciseness check"
+    task: >
+      Summarize in exactly one sentence: The company reported record quarterly
+      revenue of $10 billion, a 25% increase year-over-year, driven primarily
+      by strong cloud computing and AI services growth in North America and Europe.
+    expected_not_contains:
+      - "I cannot"
+
+  - id: sum_005
+    name: "Email summary"
+    task: >
+      Summarize this email thread: From: John. Subject: Project Alpha Status.
+      "Hi team, we're 80% done with Phase 1. Testing starts next week.
+      We need 2 more engineers for Phase 2." Reply from Sarah: "I can
+      reassign Mike and Lisa from the Beta team." Reply from John: "Perfect,
+      let's schedule a handoff meeting for Friday."
+    expected_contains:
+      - "Phase"

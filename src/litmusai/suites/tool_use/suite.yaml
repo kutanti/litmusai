@@ -1,0 +1,41 @@
+name: tool-use
+description: Evaluate tool/function calling ability — correct tool selection, parameter extraction, and result interpretation.
+
+cases:
+  - id: tu_001
+    name: "Calculator usage"
+    task: "Use the calculator tool to compute 234 * 567. What is the result?"
+    expected_contains:
+      - "132678"
+
+  - id: tu_002
+    name: "Search query formation"
+    task: "I need to find the current weather in Tokyo. What search query would you use?"
+    expected_contains:
+      - "weather"
+      - "Tokyo"
+
+  - id: tu_003
+    name: "Multi-step tool plan"
+    task: "To book a flight from NYC to London, what steps and tools would you need?"
+    expected_contains:
+      - "flight"
+
+  - id: tu_004
+    name: "Parameter extraction"
+    task: "Send an email to alice@example.com with subject 'Meeting Tomorrow' and body 'Can we meet at 3pm?'. What parameters would you use?"
+    expected_contains:
+      - "alice@example.com"
+
+  - id: tu_005
+    name: "Error handling"
+    task: "The API returned a 429 rate limit error. What should you do next?"
+    expected_contains:
+      - "retry"
+
+  - id: tu_006
+    name: "Tool selection"
+    task: "I need to convert 100 USD to EUR. Which tool would you use and with what parameters?"
+    expected_contains:
+      - "USD"
+      - "EUR"

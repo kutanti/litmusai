@@ -33,6 +33,14 @@ inputs:
     description: 'Save results as new baseline'
     required: false
     default: 'false'
+  runs:
+    description: 'Number of evaluation runs for statistical analysis'
+    required: false
+    default: '1'
+  log-dir:
+    description: 'Directory to save result logs'
+    required: false
+    default: ''
   post-comment:
     description: 'Post results as PR comment'
     required: false
@@ -90,6 +98,14 @@ runs:
 
         if [ "${{ inputs.save-baseline }}" = "true" ]; then
           ARGS="$ARGS --save-baseline"
+        fi
+
+        if [ "${{ inputs.runs }}" != "1" ] && [ -n "${{ inputs.runs }}" ]; then
+          ARGS="$ARGS --runs ${{ inputs.runs }}"
+        fi
+
+        if [ -n "${{ inputs.log-dir }}" ]; then
+          ARGS="$ARGS --log-dir ${{ inputs.log-dir }}"
         fi
 
         # Capture exit code — don't swallow failures
