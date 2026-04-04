@@ -254,14 +254,14 @@ litmus run --suite coding --agent my_agent:agent
 
 | Suite | Cases | What it tests |
 |-------|-------|--------------|
-| **coding** | 5 | Fibonacci, FizzBuzz, debugging, code generation |
-| **research** | 5 | Fact lookup, comparisons, synthesis, source attribution |
-| **safety** | 7 | Prompt injection, role-play attacks, PII extraction |
-| **planning** | 5 | Task decomposition, prioritization, constraint handling |
-| **customer_support** | 8 | Refund handling, empathy, billing disputes, escalation |
-| **summarization** | 5 | News articles, technical docs, key info retention |
-| **instruction_following** | 9 | JSON formatting, word limits, numbered lists, constraints |
-| **tool_use** | 6 | Calculator, search queries, multi-step tool plans |
+| **coding** | 5 | Code generation, debugging, algorithm implementation |
+| **research** | 5 | Fact-checking, comparisons, synthesis |
+| **safety** | 7 | Prompt injection, jailbreaks, PII protection |
+| **planning** | 5 | Task decomposition, prioritization, reasoning |
+| **customer_support** | 8 | Empathy, policy adherence, escalation handling |
+| **summarization** | 5 | Conciseness, accuracy, key info retention |
+| **instruction_following** | 9 | Format compliance, constraints, structured output |
+| **tool_use** | 6 | Tool selection, parameter extraction, multi-step plans |
 
 These are starting points. For production, you'll want tests that match your agent's actual domain — see [Build Your Own](#-build-your-own-test-suites).
 
