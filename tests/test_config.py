@@ -1,7 +1,6 @@
 """Tests for config file support."""
 
 
-
 from litmusai.config import (
     find_config,
     get_defaults,
@@ -76,6 +75,19 @@ class TestLoadConfig:
     def test_load_empty(self, tmp_path):
         config_file = tmp_path / "config.yaml"
         config_file.write_text("")
+        config = load_config(config_file)
+        assert config == {}
+
+    def test_load_invalid_yaml(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("{{{{invalid: yaml: [[[")
+        config = load_config(config_file)
+        assert config == {}
+
+    def test_load_non_dict_yaml(self, tmp_path):
+        """YAML that parses to a list should return empty dict."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("- item1\n- item2\n")
         config = load_config(config_file)
         assert config == {}
 

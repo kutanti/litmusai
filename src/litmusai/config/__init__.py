@@ -92,8 +92,14 @@ def load_config(
     if not path.exists():
         return {}
 
-    with open(path) as f:
-        data = yaml.safe_load(f) or {}
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError:
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
 
     return data
 
