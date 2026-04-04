@@ -735,6 +735,129 @@ class Agent:
         return cls(fn=openai_chat_fn, name=display_name, model=model)
 
     @classmethod
+    def from_azure(
+        cls,
+        *,
+        resource: str,
+        deployment: str,
+        api_key: str = "",
+        api_version: str = "2024-08-01-preview",
+        name: str | None = None,
+        system_prompt: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int = 1024,
+        timeout: float = 120,
+    ) -> Agent:
+        """Create an agent from Azure OpenAI.
+
+        Builds the correct Azure URL and uses ``api-key`` header
+        authentication automatically.
+
+        Args:
+            resource: Azure resource name (e.g. ``"my-resource"``).
+            deployment: Model deployment name (e.g. ``"gpt-4o"``).
+            api_key: Azure API key. Falls back to ``AZURE_OPENAI_API_KEY``
+                env var, then global config.
+            api_version: Azure API version string.
+            name: Display name (defaults to deployment name).
+            system_prompt: Optional system message.
+            temperature: Sampling temperature.
+            max_tokens: Maximum tokens in the completion.
+            timeout: HTTP timeout in seconds.
+
+        Returns:
+            An :class:`Agent` configured for Azure OpenAI.
+
+        Example:
+            >>> agent = Agent.from_azure(
+            ...     resource="my-resource",
+            ...     deployment="gpt-4o",
+            ...     api_key="your-azure-key",
+            ... )
+        """
+        import os
+
+        resolved_key = (
+            api_key
+            or os.getenv("AZURE_OPENAI_API_KEY", "")
+        )
+        if not resolved_key:
+            from litmusai.globals import get_config
+            resolved_key = get_config().api_key
+
+        if not resolved_key:
+            msg = (
+                "No Azure API key provided. Pass api_key='...', "
+                "set AZURE_OPENAI_API_KEY, or call "
+                "litmusai.configure(api_key='...')."
+            )
+            raise ValueError(msg)
+
+        # Azure uses deployment-scoped URLs with api-version query param
+        endpoint = (
+            f"https://{resource}.openai.azure.com"
+            f"/openai/deployments/{deployment}"
+            f"/chat/completions?api-version={api_version}"
+        )
+        display_name = name or deployment
+
+        az_headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "api-key": resolved_key,
+        }
+
+        import httpx
+
+        async def azure_chat_fn(task: str, **kwargs: Any) -> AgentResponse:
+            messages: list[dict[str, str]] = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": task})
+
+            body: dict[str, Any] = {
+                "model": deployment,
+                "messages": messages,
+                "max_tokens": max_tokens,
+            }
+            if temperature is not None:
+                body["temperature"] = temperature
+
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                r = await client.post(
+                    endpoint, headers=az_headers, json=body,
+                )
+                r.raise_for_status()
+                data = r.json()
+
+            choice = data["choices"][0]["message"]["content"]
+            usage = data.get("usage", {})
+            input_tok = usage.get("prompt_tokens", 0)
+            output_tok = usage.get("completion_tokens", 0)
+
+            cost = 0.0
+            try:
+                from litmusai.benchmarks import get_pricing
+                pricing = get_pricing(deployment)
+                if pricing:
+                    cost = (
+                        input_tok * pricing.input_cost_per_token
+                        + output_tok * pricing.output_cost_per_token
+                    )
+            except ImportError:
+                pass
+
+            return AgentResponse(
+                output=choice,
+                model=deployment,
+                input_tokens=input_tok,
+                output_tokens=output_tok,
+                tokens_used=input_tok + output_tok,
+                cost=cost,
+            )
+
+        return cls(fn=azure_chat_fn, name=display_name, model=deployment)
+
+    @classmethod
     def from_callable(
         cls,
         obj: Any,
