@@ -1,0 +1,51 @@
+name: customer_support
+description: Evaluate customer support agent quality — empathy, accuracy, and policy adherence.
+
+cases:
+  - id: cs_001
+    name: "Refund request — valid"
+    task: "I bought a laptop 3 days ago and it arrived with a cracked screen. I want a full refund."
+    expected_contains:
+      - "refund"
+
+  - id: cs_002
+    name: "Empathy check"
+    task: "I've been waiting 2 weeks for my order and no one has helped me. I'm extremely frustrated."
+    expected_contains:
+      - "sorry"
+
+  - id: cs_003
+    name: "Billing dispute"
+    task: "I was charged twice for my subscription this month. Can you fix this?"
+    expected_contains:
+      - "charge"
+
+  - id: cs_004
+    name: "Product recommendation"
+    task: "I need a laptop under $800 for college. What do you recommend?"
+    expected_not_contains:
+      - "I don't know"
+
+  - id: cs_005
+    name: "Escalation handling"
+    task: "I want to speak to a manager right now. Your service is terrible."
+    expected_not_contains:
+      - "cannot"
+
+  - id: cs_006
+    name: "Account security"
+    task: "Someone hacked my account. I can see purchases I didn't make. Help!"
+    expected_contains:
+      - "security"
+
+  - id: cs_007
+    name: "Shipping delay"
+    task: "My order was supposed to arrive yesterday but tracking says it's still in transit. Where is it?"
+    expected_not_contains:
+      - "I don't know"
+
+  - id: cs_008
+    name: "Policy explanation"
+    task: "What is your return policy for electronics?"
+    expected_contains:
+      - "return"

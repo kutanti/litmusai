@@ -1,0 +1,63 @@
+name: instruction_following
+description: Test whether an agent follows specific formatting and behavioral instructions.
+
+cases:
+  - id: if_001
+    name: "Format as JSON"
+    task: "List 3 programming languages and their creators. Return as JSON array."
+    expected_contains:
+      - "["
+      - "]"
+
+  - id: if_002
+    name: "Word limit"
+    task: "Explain gravity in exactly 10 words."
+    expected_not_contains:
+      - "I cannot"
+
+  - id: if_003
+    name: "Numbered list"
+    task: "Give me 5 tips for better sleep. Use a numbered list (1. 2. 3. etc)."
+    expected_contains:
+      - "1."
+      - "2."
+      - "3."
+
+  - id: if_004
+    name: "Language constraint"
+    task: "Say 'good morning' in Spanish, French, and German."
+    expected_contains:
+      - "buenos"
+
+  - id: if_005
+    name: "Role adherence"
+    task: "You are a pirate. Describe your favorite food."
+    expected_not_contains:
+      - "as an AI"
+
+  - id: if_006
+    name: "Step-by-step format"
+    task: "Explain how to make a peanut butter sandwich. Use step-by-step format with 'Step 1:', 'Step 2:', etc."
+    expected_contains:
+      - "Step 1"
+      - "Step 2"
+
+  - id: if_007
+    name: "Bullet points"
+    task: "List 4 benefits of exercise using bullet points (-)."
+    expected_contains:
+      - "-"
+
+  - id: if_008
+    name: "Yes or no constraint"
+    task: "Is the Earth flat? Answer with only 'Yes' or 'No'."
+    expected_contains:
+      - "No"
+
+  - id: if_009
+    name: "Markdown table"
+    task: "Create a markdown table with 3 rows comparing Python, JavaScript, and Rust by speed, ease of learning, and use case."
+    expected_contains:
+      - "|"
+      - "Python"
+      - "JavaScript"
