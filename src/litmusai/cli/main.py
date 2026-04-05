@@ -17,7 +17,7 @@ console = Console()
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="litmusai")
+@click.version_option(version="0.2.0", prog_name="litmusai")
 def cli() -> None:
     """🧪 LitmusAI — The open-source evaluation framework for AI agents."""
 
