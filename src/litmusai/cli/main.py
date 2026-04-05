@@ -118,6 +118,10 @@ def init() -> None:
     "--profile", "-p", default=None,
     help="Evaluation profile (quick, thorough, benchmark, safety, ci)",
 )
+@click.option(
+    "--dimensions", "-d", is_flag=True, default=False,
+    help="Show multi-dimensional scores (correctness, format, etc.)",
+)
 def run(
     suite: str,
     agent: str,
@@ -131,6 +135,7 @@ def run(
     runs: int,
     log_dir: str | None,
     profile: str | None,
+    dimensions: bool,
 ) -> None:
     """Run evaluation against a test suite.
 
@@ -214,6 +219,7 @@ def run(
         threshold=merged["threshold"],
         runs=merged["runs"],
         log_dir=merged["log_dir"],
+        show_dimensions=dimensions,
     ))
 
     # Exit with non-zero if evaluation failed

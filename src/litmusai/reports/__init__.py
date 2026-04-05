@@ -209,6 +209,8 @@ footer a {{ color: var(--blue); text-decoration: none; }}
     </div>
 </div>
 
+{dimensions_section}
+
 <h2>Test Results</h2>
 
 <div class="filter-bar">
@@ -289,6 +291,122 @@ function sortTable(col) {{
 </script>
 </body>
 </html>"""
+
+
+def _build_dimensions_section(data: dict[str, Any]) -> str:
+    """Build HTML for the dimensions radar chart + table."""
+    dims = data.get("dimensions")
+    if not dims:
+        return ""
+
+    import math
+
+    labels = [
+        "Correctness", "Completeness", "Format",
+        "Relevance", "Safety", "Latency", "Cost",
+    ]
+    keys = [
+        "correctness", "completeness", "format",
+        "relevance", "safety", "latency", "cost",
+    ]
+    values = [dims.get(k, 0) for k in keys]
+    overall = dims.get("overall", 0)
+
+    # Build SVG radar chart (self-contained, no external libs)
+    cx, cy, r = 150, 150, 120
+    n = len(labels)
+    angles = [2 * math.pi * i / n - math.pi / 2 for i in range(n)]
+
+    # Background rings
+    rings = ""
+    for pct in (0.25, 0.5, 0.75, 1.0):
+        pts = " ".join(
+            f"{cx + r * pct * math.cos(a):.1f},{cy + r * pct * math.sin(a):.1f}"
+            for a in angles
+        )
+        rings += f'<polygon points="{pts}" fill="none" stroke="#30363d" stroke-width="0.5"/>\n'
+
+    # Axis lines
+    axes = ""
+    for a in angles:
+        axes += (
+            f'<line x1="{cx}" y1="{cy}" '
+            f'x2="{cx + r * math.cos(a):.1f}" y2="{cy + r * math.sin(a):.1f}" '
+            f'stroke="#30363d" stroke-width="0.5"/>\n'
+        )
+
+    # Data polygon
+    data_pts = " ".join(
+        f"{cx + r * v * math.cos(a):.1f},{cy + r * v * math.sin(a):.1f}"
+        for v, a in zip(values, angles)
+    )
+
+    # Labels
+    label_els = ""
+    for label, v, a in zip(labels, values, angles):
+        lx = cx + (r + 25) * math.cos(a)
+        ly = cy + (r + 25) * math.sin(a)
+        anchor = "middle"
+        if math.cos(a) > 0.3:
+            anchor = "start"
+        elif math.cos(a) < -0.3:
+            anchor = "end"
+        label_els += (
+            f'<text x="{lx:.1f}" y="{ly:.1f}" '
+            f'fill="#e6edf3" font-size="11" text-anchor="{anchor}" '
+            f'dominant-baseline="middle">'
+            f'{_esc(label)} ({v:.2f})</text>\n'
+        )
+
+    # Dimension detail rows
+    detail_keys = dims.get("details", {})
+    table_rows = ""
+    for label, key, v in zip(labels, keys, values):
+        color = _score_color(v)
+        detail = _esc(str(detail_keys.get(key, "")))
+        bar_w = max(0, min(100, v * 100))
+        table_rows += f"""<tr>
+<td>{_esc(label)}</td>
+<td style="color:var(--{color})">{v:.2f}</td>
+<td style="width:200px">
+  <div style="background:#30363d;border-radius:4px;height:8px;width:100%">
+    <div style="background:var(--{color});border-radius:4px;height:8px;width:{bar_w:.0f}%"></div>
+  </div>
+</td>
+<td style="color:var(--text-dim);font-size:0.85rem">{detail}</td>
+</tr>"""
+
+    return f"""
+<h2>📐 Quality Dimensions</h2>
+<div style="display:flex;gap:2rem;flex-wrap:wrap;align-items:flex-start;margin-bottom:2rem">
+  <div>
+    <svg width="340" height="340" viewBox="0 0 340 340" xmlns="http://www.w3.org/2000/svg">
+      {rings}
+      {axes}
+      <polygon points="{data_pts}" fill="rgba(88,166,255,0.2)" stroke="#58a6ff" stroke-width="2"/>
+      {label_els}
+    </svg>
+  </div>
+  <div style="flex:1;min-width:300px">
+    <div style="margin-bottom:1rem">
+      <span style="color:var(--text-dim)">Overall Score</span>
+      <span style="font-size:1.8rem;font-weight:700;margin-left:0.5rem;
+        color:var(--{_score_color(overall)})">{overall:.2f}</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:6px">Dimension</th>
+          <th style="text-align:right;padding:6px;width:60px">Score</th>
+          <th style="padding:6px">Bar</th>
+          <th style="text-align:left;padding:6px">Detail</th>
+        </tr>
+      </thead>
+      <tbody>{table_rows}</tbody>
+    </table>
+  </div>
+</div>
+"""
 
 
 def _score_color(score: float) -> str:
@@ -399,6 +517,7 @@ def render_html(
         output_tokens=f"{total_out:,}",
         rows=rows_html,
         timestamp=_esc(data.get("timestamp", "")),
+        dimensions_section=_build_dimensions_section(data),
     )
 
     output_path.write_text(html_out)
