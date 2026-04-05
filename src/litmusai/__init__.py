@@ -28,7 +28,12 @@ from litmusai.core.scorer import Scorer
 from litmusai.core.suite import TestCase, TestSuite
 from litmusai.globals import configure, get_config, reset_config
 from litmusai.pipeline import Pipeline, PipelineResult, run_pipeline
-from litmusai.profiles import EvalProfile, get_profile, list_profiles, register_profile
+from litmusai.profiles import (
+    EvalProfile,
+    get_profile,
+    list_profiles,
+    register_profile,
+)
 
 __all__ = [
     # Core

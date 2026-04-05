@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any
 
 
-@dataclass
+@dataclass(frozen=True)
 class EvalProfile:
     """A named preset of Pipeline configuration.
 
@@ -83,6 +83,14 @@ class EvalProfile:
 
 
 # ─── Built-in profiles ──────────────────────────────────────────
+#
+# Profile defaults are intentional:
+# - quick: high concurrency (10) for fast dev feedback
+# - thorough: lower concurrency (3) to avoid rate limits during
+#   multi-run + safety scanning
+# - benchmark: lower concurrency (3) for consistent latency measurement
+# - safety: very low concurrency (2) for thorough attack testing
+# - ci: moderate concurrency (5), JUnit output for CI integration
 
 _BUILTIN_PROFILES: dict[str, EvalProfile] = {
     "quick": EvalProfile(
@@ -213,16 +221,46 @@ def load_profile_yaml(path: str | Path) -> EvalProfile:
         msg = f"Profile YAML must have a 'name' field: {path}"
         raise ValueError(msg)
 
+    # Validate and coerce types
+    name = str(data["name"])
+    concurrency = int(data.get("concurrency", 5))
+    runs = int(data.get("runs", 1))
+    threshold = float(data.get("threshold", 0.5))
+    safety = bool(data.get("safety", False))
+    verbose = bool(data.get("verbose", True))
+
+    if concurrency < 1:
+        msg = f"concurrency must be >= 1, got {concurrency} in {path}"
+        raise ValueError(msg)
+    if runs < 1:
+        msg = f"runs must be >= 1, got {runs} in {path}"
+        raise ValueError(msg)
+    if not 0.0 <= threshold <= 1.0:
+        msg = f"threshold must be 0.0-1.0, got {threshold} in {path}"
+        raise ValueError(msg)
+
+    safety_depth = str(data.get("safety_depth", "standard"))
+    if safety_depth not in ("basic", "standard", "thorough"):
+        msg = f"safety_depth must be basic/standard/thorough, got '{safety_depth}' in {path}"
+        raise ValueError(msg)
+
+    report = data.get("report")
+    if report is not None:
+        report = str(report)
+        if report not in ("html", "junit", "csv"):
+            msg = f"report must be html/junit/csv, got '{report}' in {path}"
+            raise ValueError(msg)
+
     profile = EvalProfile(
-        name=data["name"],
-        description=data.get("description", ""),
-        concurrency=data.get("concurrency", 5),
-        runs=data.get("runs", 1),
-        safety=data.get("safety", False),
-        safety_depth=data.get("safety_depth", "standard"),
-        threshold=data.get("threshold", 0.5),
-        report=data.get("report"),
-        verbose=data.get("verbose", True),
+        name=name,
+        description=str(data.get("description", "")),
+        concurrency=concurrency,
+        runs=runs,
+        safety=safety,
+        safety_depth=safety_depth,
+        threshold=threshold,
+        report=report,
+        verbose=verbose,
     )
 
     _custom_profiles[profile.name] = profile

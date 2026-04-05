@@ -168,6 +168,15 @@ def run(
             runs = prof.runs
         if threshold is None:
             threshold = prof.threshold
+        if log_dir is None and prof.report == "junit":
+            # CI profile implies logging
+            log_dir = ".litmus/logs"
+
+        # Note: safety, safety_depth, report, verbose from profiles
+        # are used when invoking Pipeline directly. The CLI `run`
+        # command uses run_evaluation() which doesn't support safety
+        # inline. Use `litmus scan` separately for safety scanning,
+        # or use Pipeline() in Python for the full profile experience.
     else:
         ctx = click.get_current_context()
 

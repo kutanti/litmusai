@@ -113,6 +113,12 @@ class TestCustomProfiles:
         result = get_profile("quick")
         assert result.concurrency == 99
 
+    def test_profile_is_frozen(self):
+        """Profiles are immutable."""
+        p = get_profile("quick")
+        with pytest.raises(AttributeError):
+            p.concurrency = 1  # type: ignore[misc]
+
     def test_list_includes_custom(self):
         register_profile(EvalProfile(name="zzz_custom"))
         profiles = list_profiles()
@@ -167,6 +173,41 @@ report: html
         f.write_text("concurrency: 5\n")
 
         with pytest.raises(ValueError, match="must have a 'name' field"):
+            load_profile_yaml(f)
+
+    def test_load_yaml_invalid_concurrency(self, tmp_path):
+        f = tmp_path / "bad.yaml"
+        f.write_text("name: bad\nconcurrency: 0\n")
+
+        with pytest.raises(ValueError, match="concurrency must be >= 1"):
+            load_profile_yaml(f)
+
+    def test_load_yaml_invalid_runs(self, tmp_path):
+        f = tmp_path / "bad.yaml"
+        f.write_text("name: bad\nruns: -1\n")
+
+        with pytest.raises(ValueError, match="runs must be >= 1"):
+            load_profile_yaml(f)
+
+    def test_load_yaml_invalid_threshold(self, tmp_path):
+        f = tmp_path / "bad.yaml"
+        f.write_text("name: bad\nthreshold: 1.5\n")
+
+        with pytest.raises(ValueError, match="threshold must be 0.0-1.0"):
+            load_profile_yaml(f)
+
+    def test_load_yaml_invalid_safety_depth(self, tmp_path):
+        f = tmp_path / "bad.yaml"
+        f.write_text("name: bad\nsafety_depth: extreme\n")
+
+        with pytest.raises(ValueError, match="safety_depth must be"):
+            load_profile_yaml(f)
+
+    def test_load_yaml_invalid_report(self, tmp_path):
+        f = tmp_path / "bad.yaml"
+        f.write_text("name: bad\nreport: pdf\n")
+
+        with pytest.raises(ValueError, match="report must be"):
             load_profile_yaml(f)
 
     def test_load_yaml_file_not_found(self):
