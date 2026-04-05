@@ -114,6 +114,10 @@ def init() -> None:
     "--log-dir", default=None,
     help="Directory to save result logs (default: .litmus/logs)",
 )
+@click.option(
+    "--profile", "-p", default=None,
+    help="Evaluation profile (quick, thorough, benchmark, safety, ci)",
+)
 def run(
     suite: str,
     agent: str,
@@ -126,6 +130,7 @@ def run(
     threshold: float | None,
     runs: int,
     log_dir: str | None,
+    profile: str | None,
 ) -> None:
     """Run evaluation against a test suite.
 
@@ -142,9 +147,32 @@ def run(
     from litmusai.ci import run_evaluation
     from litmusai.config import load_config, merge_cli_args
 
+    # Apply profile defaults first, then CLI overrides take precedence
+    if profile:
+        from litmusai.profiles import get_profile, load_profiles_from_dir
+
+        # Load custom profiles from .litmus/profiles/
+        load_profiles_from_dir()
+
+        try:
+            prof = get_profile(profile)
+        except ValueError as e:
+            click.echo(f"Error: {e}", err=True)
+            raise SystemExit(1) from None
+
+        # Profile sets defaults — explicit CLI args override
+        ctx = click.get_current_context()
+        if ctx.get_parameter_source("concurrency") != click.core.ParameterSource.COMMANDLINE:
+            concurrency = prof.concurrency
+        if ctx.get_parameter_source("runs") != click.core.ParameterSource.COMMANDLINE:
+            runs = prof.runs
+        if threshold is None:
+            threshold = prof.threshold
+    else:
+        ctx = click.get_current_context()
+
     # Load config and merge with CLI args.
     # Use Click's parameter source to detect user-provided values.
-    ctx = click.get_current_context()
     config = load_config()
     merged = merge_cli_args(
         config,
@@ -212,6 +240,36 @@ def suites() -> None:
             "No test suites found. "
             "Run [bold]litmus init[/bold] first."
         )
+
+
+# ─── litmus profiles ─────────────────────────────────────────────
+
+
+@cli.command()
+def profiles() -> None:
+    """List available evaluation profiles."""
+    from litmusai.profiles import list_profiles, load_profiles_from_dir
+
+    # Load any custom profiles
+    load_profiles_from_dir()
+
+    all_profiles = list_profiles()
+    if all_profiles:
+        console.print("[bold]Available evaluation profiles:[/bold]\n")
+        for p in all_profiles:
+            console.print(f"  [bold cyan]{p.name}[/bold cyan]")
+            console.print(f"    {p.description}")
+            details = []
+            details.append(f"concurrency={p.concurrency}")
+            details.append(f"runs={p.runs}")
+            if p.safety:
+                details.append(f"safety={p.safety_depth}")
+            details.append(f"threshold={p.threshold}")
+            if p.report:
+                details.append(f"report={p.report}")
+            console.print(f"    [dim]{' · '.join(details)}[/dim]\n")
+    else:
+        console.print("No profiles found.")
 
 
 # ─── litmus history ──────────────────────────────────────────────
