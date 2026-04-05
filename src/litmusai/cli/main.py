@@ -274,6 +274,10 @@ def profiles() -> None:
             if p.safety:
                 details.append(f"safety={p.safety_depth}")
             details.append(f"threshold={p.threshold}")
+            if p.temperature is not None:
+                details.append(f"temperature={p.temperature}")
+            if p.seed is not None:
+                details.append(f"seed={p.seed}")
             if p.report:
                 details.append(f"report={p.report}")
             console.print(f"    [dim]{' · '.join(details)}[/dim]\n")

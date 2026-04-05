@@ -444,6 +444,8 @@ async def evaluate(
 
     config: dict[str, Any] = {
         "concurrency": concurrency,
+        "model": agent.model,
+        "model_params": agent.model_params,
     }
 
     results = EvalResults(

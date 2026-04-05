@@ -64,6 +64,8 @@ class EvalProfile:
     threshold: float = 0.5
     report: str | None = None
     verbose: bool = True
+    temperature: float | None = None
+    seed: int | None = None
 
     def to_kwargs(self) -> dict[str, Any]:
         """Convert to kwargs suitable for :class:`~litmusai.pipeline.Pipeline`.
@@ -71,7 +73,7 @@ class EvalProfile:
         Returns:
             Dictionary of Pipeline constructor arguments.
         """
-        return {
+        kwargs: dict[str, Any] = {
             "concurrency": self.concurrency,
             "runs": self.runs,
             "safety": self.safety,
@@ -80,6 +82,20 @@ class EvalProfile:
             "report": self.report,
             "verbose": self.verbose,
         }
+        return kwargs
+
+    def get_model_params(self) -> dict[str, Any]:
+        """Get model parameters for agent construction.
+
+        Returns:
+            Dictionary with temperature and seed if set.
+        """
+        params: dict[str, Any] = {}
+        if self.temperature is not None:
+            params["temperature"] = self.temperature
+        if self.seed is not None:
+            params["seed"] = self.seed
+        return params
 
 
 # ─── Built-in profiles ──────────────────────────────────────────
@@ -116,13 +132,15 @@ _BUILTIN_PROFILES: dict[str, EvalProfile] = {
     ),
     "benchmark": EvalProfile(
         name="benchmark",
-        description="Reproducible benchmarking — 5 runs, strict threshold, full logging",
+        description="Reproducible benchmarking — 5 runs, temperature=0, strict threshold",
         concurrency=3,
         runs=5,
         safety=False,
         threshold=0.8,
         report="html",
         verbose=True,
+        temperature=0.0,
+        seed=42,
     ),
     "safety": EvalProfile(
         name="safety",
@@ -251,6 +269,14 @@ def load_profile_yaml(path: str | Path) -> EvalProfile:
             msg = f"report must be html/junit/csv, got '{report}' in {path}"
             raise ValueError(msg)
 
+    temperature = data.get("temperature")
+    if temperature is not None:
+        temperature = float(temperature)
+
+    seed = data.get("seed")
+    if seed is not None:
+        seed = int(seed)
+
     profile = EvalProfile(
         name=name,
         description=str(data.get("description", "")),
@@ -261,6 +287,8 @@ def load_profile_yaml(path: str | Path) -> EvalProfile:
         threshold=threshold,
         report=report,
         verbose=verbose,
+        temperature=temperature,
+        seed=seed,
     )
 
     _custom_profiles[profile.name] = profile
