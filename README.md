@@ -9,9 +9,9 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Assertions · Safety red-teaming · Real cost tracking · Regression detection**
+**Assertions · Safety red-teaming · Real cost tracking · Regression detection · Pipeline · Profiles**
 
-[Install](#install) · [Quick Start](#quick-start) · [Built-in Suites](#-built-in-test-suites) · [Your Own Suites](#-build-your-own-test-suites) · [Features](#features) · [CLI](#cli)
+[Install](#install) · [Quick Start](#quick-start) · [Pipeline](#-pipeline) · [Profiles](#-evaluation-profiles) · [Built-in Suites](#-built-in-test-suites) · [Your Own Suites](#-build-your-own-test-suites) · [Features](#features) · [CLI](#cli)
 
 </div>
 
@@ -72,6 +72,72 @@ suite.add_case(TestCase(
 ))
 
 results = asyncio.run(evaluate(agent, suite))
+```
+
+---
+
+## 🔄 Pipeline
+
+Chain eval + safety + report in one call:
+
+```python
+from litmusai import Agent, Pipeline
+
+agent = Agent.from_openai_chat(model="gpt-4.1", api_key="sk-...")
+
+result = await Pipeline(
+    agent, "coding",
+    safety=True,
+    runs=3,
+    report="html",
+    report_path="report.html",
+).run()
+
+print(result.summary())
+# ✅ 5/5 passed | 🛡️ 78/100 UNSAFE | 📊 3 runs — stable | 📄 report.html | ⏱️ 55s
+```
+
+### Real benchmark results (April 2026):
+
+| Model | Pass Rate | Cost | Cost/Correct | Latency |
+|-------|-----------|------|-------------|---------|
+| GPT-4.1 | 100% | $0.017 | $0.0034 🏆 | 4141ms |
+| GPT-4o | 100% | $0.024 | $0.0048 | 3995ms |
+
+GPT-4.1 is 28% cheaper with the same accuracy.
+
+---
+
+## 🔬 Evaluation Profiles
+
+Preset configs for common scenarios:
+
+```bash
+litmus run -s coding -a my_agent:agent --profile quick      # fast dev feedback
+litmus run -s coding -a my_agent:agent --profile thorough   # full eval + safety
+litmus run -s coding -a my_agent:agent --profile ci         # CI/CD pipeline
+litmus profiles                                              # list all
+```
+
+| Profile | Runs | Safety | Threshold | Report | Use case |
+|---------|------|--------|-----------|--------|----------|
+| **quick** | 1 | — | 0.5 | — | Fast dev feedback |
+| **thorough** | 3 | ✅ standard | 0.7 | HTML | Full evaluation |
+| **benchmark** | 5 | — | 0.8 | HTML | Reproducible benchmarks |
+| **safety** | 1 | ✅ thorough | 0.5 | HTML | Safety-focused |
+| **ci** | 1 | — | 0.8 | JUnit | CI/CD pipelines |
+
+Create custom profiles in YAML:
+
+```yaml
+# .litmus/profiles/production.yaml
+name: production
+description: Production readiness check
+runs: 5
+safety: true
+safety_depth: thorough
+threshold: 0.9
+report: html
 ```
 
 ---
@@ -200,10 +266,10 @@ diff = diff_results(last_week, today)
 
 ```python
 from litmusai.benchmarks import register_pricing
-register_pricing("gpt-4o", input_cost=2.50, output_cost=10.0)
+register_pricing("gpt-4o", input_cost_per_m=2.50, output_cost_per_m=10.0)
 
 results = await evaluate(agent, suite)
-print(f"${results.total_cost:.4f} for {results.total_tokens} tokens")
+print(f"${results.total_cost:.4f} for {results.total_input_tokens + results.total_output_tokens} tokens")
 ```
 
 ### Global Configuration
@@ -232,10 +298,12 @@ Interactive dark-theme report with sorting, filtering, and drill-down details.
 
 ```bash
 litmus run --suite coding --agent my_agent:agent       # evaluate
+litmus run --suite coding -a my_agent:agent --profile thorough  # with profile
 litmus run --suite my_suite.yaml --runs 5              # multi-run
 litmus scan --agent my_agent:agent --depth thorough     # safety scan
 litmus diff --before run1.json --after run2.json        # regression check
 litmus report --html report.html                        # export
+litmus profiles                                          # list profiles
 litmus init                                             # scaffold project
 litmus suites                                           # list built-in suites
 ```
@@ -287,7 +355,7 @@ Catch regressions before they ship:
 ```bash
 git clone https://github.com/kutanti/litmusai.git
 cd litmusai && pip install -e ".[dev]"
-pytest                    # 641 tests
+pytest                    # 693 tests
 ruff check src/ tests/    # lint
 mypy src/litmusai/        # types
 ```
