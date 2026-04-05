@@ -78,6 +78,31 @@ class TestEvalResultsConfig:
         assert results.config["model_params"]["seed"] == 42
 
     @pytest.mark.asyncio
+    async def test_config_model_params_is_copy(self):
+        """Config stores a defensive copy, not a reference."""
+        from litmusai import TestCase, TestSuite, evaluate
+
+        async def fn(task, **kw):
+            return AgentResponse(output="42", model="test")
+
+        params = {"temperature": 0.0}
+        agent = Agent(
+            fn=fn, name="test", model="test",
+            model_params=params,
+        )
+
+        suite = TestSuite(name="test")
+        suite.add_case(TestCase(
+            id="q1", name="Q", task="What?",
+            expected_contains=["42"],
+        ))
+
+        results = await evaluate(agent, suite, verbose=False)
+        # Mutating the original dict should not affect results
+        params["temperature"] = 999
+        assert results.config["model_params"]["temperature"] == 0.0
+
+    @pytest.mark.asyncio
     async def test_config_in_to_dict(self):
         from litmusai import TestCase, TestSuite, evaluate
 
@@ -132,7 +157,7 @@ class TestBenchmarkProfile:
         runner = CliRunner()
         result = runner.invoke(cli, ["profiles"])
         assert result.exit_code == 0
-        assert "temperature=0" in result.output
+        assert "temperature=0.0" in result.output
         assert "seed=42" in result.output
 
 
@@ -146,3 +171,13 @@ class TestSeedParam:
     def test_no_seed_by_default(self):
         agent = Agent.from_openai_chat(model="gpt-4o", api_key="test")
         assert "seed" not in agent.model_params
+
+    def test_extra_body_overrides_logged(self):
+        agent = Agent.from_openai_chat(
+            model="gpt-4o", api_key="test",
+            temperature=0.5,
+            extra_body={"temperature": 0.0, "seed": 99},
+        )
+        # extra_body overrides should be reflected in model_params
+        assert agent.model_params["temperature"] == 0.0
+        assert agent.model_params["seed"] == 99

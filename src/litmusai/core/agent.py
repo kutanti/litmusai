@@ -744,6 +744,11 @@ class Agent:
             params["temperature"] = temperature
         if seed is not None:
             params["seed"] = seed
+        # Reflect extra_body overrides in logged params
+        if extra_body:
+            for key in ("temperature", "max_tokens", "seed"):
+                if key in extra_body:
+                    params[key] = extra_body[key]
 
         return cls(
             fn=openai_chat_fn,
