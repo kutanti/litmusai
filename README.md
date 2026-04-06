@@ -103,14 +103,20 @@ Agent.from_crewai(crew)                            # CrewAI
 Run eval + safety + report in one call:
 
 ```python
+import asyncio
 from litmusai import Agent, Pipeline
 
-result = await Pipeline(
-    agent, "coding",
-    safety=True,
-    runs=3,
-    report="html",
-).run()
+agent = Agent.from_openai_chat(model="gpt-4.1", api_key="sk-...")
+
+async def main():
+    result = await Pipeline(
+        agent, "coding",
+        safety=True,
+        runs=3,
+        report="html",
+    ).run()
+
+asyncio.run(main())
 ```
 
 ## Profiles
@@ -119,9 +125,9 @@ Presets for common scenarios:
 
 ```bash
 litmus run -s coding -a agent:fn --profile quick       # fast iteration
-litmus run -s coding -a agent:fn --profile thorough    # full eval + safety
+litmus run -s coding -a agent:fn --profile thorough    # 3 runs, strict threshold
 litmus run -s coding -a agent:fn --profile benchmark   # 5 runs, temp=0
-litmus run -s coding -a agent:fn --profile ci          # strict, junit output
+litmus run -s coding -a agent:fn --profile ci          # strict threshold
 litmus profiles                                         # see all
 ```
 
@@ -174,10 +180,10 @@ register_assertion("max_words", MaxWords)
 
 ```bash
 litmus run --suite coding --agent my_agent:agent    # evaluate
-litmus run --suite tests.yaml --runs 5 --dimensions # multi-run + dimensions
-litmus scan --agent my_agent:agent --depth thorough  # safety scan
+litmus run --suite tests.yaml --runs 5              # multi-run
+litmus scan --agent my_agent:agent --level thorough  # safety scan
 litmus diff --before run1.json --after run2.json     # compare runs
-litmus report --html report.html                     # generate report
+litmus report -r results.json --html report.html     # generate report
 litmus init                                          # scaffold project
 ```
 
