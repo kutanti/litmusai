@@ -2,6 +2,21 @@
 
 All notable changes to LitmusAI will be documented in this file.
 
+## [0.2.1] - 2026-04-06
+
+### Added
+- **Pipeline class** — `Pipeline(agent, suite, safety=True, runs=3, report="html").run()` chains eval + safety + report in one call. Returns `PipelineResult` with `summary()`, threshold checking, and combined results
+- **Evaluation Profiles** — 5 built-in presets: `quick`, `thorough`, `benchmark`, `safety`, `ci`. CLI: `litmus run --profile thorough`. Custom YAML profiles in `.litmus/profiles/`
+- **`litmus profiles`** CLI command — list all available profiles with descriptions and settings
+- **`EvalProfile` dataclass** — frozen, validated, with `to_kwargs()` for Pipeline integration
+
+### Changed
+- README rewritten — less marketing, more developer-focused. Plain descriptions, real code examples, no AI-generated fluff
+
+### Fixed
+- CLI version display now correctly shows package version
+- Profile fields validated on load (concurrency≥1, runs≥1, threshold 0-1, valid safety_depth/report)
+
 ## [0.2.0] - 2026-04-04
 
 ### Added
