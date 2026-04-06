@@ -10,7 +10,7 @@ Example::
 
     vector = ScoreVector(correctness=1.0, latency=0.7)
     vector.compute_overall()  # uses default weights
-    print(vector.overall)     # 0.835
+    print(vector.overall)     # ~0.435 (only 2 of 7 dimensions set)
 """
 
 from __future__ import annotations
@@ -56,7 +56,10 @@ class DimensionBudget:
         """Score latency on a 0-1 scale."""
         if actual_ms <= self.latency_ms:
             return 1.0
-        if actual_ms >= self.latency_max_ms:
+        if (
+            actual_ms >= self.latency_max_ms
+            or self.latency_max_ms <= self.latency_ms
+        ):
             return 0.0
         # Linear interpolation
         return 1.0 - (
@@ -68,7 +71,10 @@ class DimensionBudget:
         """Score cost on a 0-1 scale."""
         if actual_usd <= self.cost_usd:
             return 1.0
-        if actual_usd >= self.cost_max_usd:
+        if (
+            actual_usd >= self.cost_max_usd
+            or self.cost_max_usd <= self.cost_usd
+        ):
             return 0.0
         return 1.0 - (
             (actual_usd - self.cost_usd)
@@ -196,7 +202,6 @@ def build_score_vector(
     assertion_details = _get_assertion_details(score_result)
 
     # Categorize assertions into dimensions
-    completeness_scores: list[float] = []
     format_scores: list[float] = []
     relevance_scores: list[float] = []
     safety_scores: list[float] = []
@@ -231,12 +236,9 @@ def build_score_vector(
             f"/{len(correctness_scores)} passed"
         )
 
-    # Completeness — based on output length and assertion coverage
+    # Completeness — heuristic based on output length
     output = getattr(response, "output", "") or ""
-    if completeness_scores:
-        completeness = sum(completeness_scores) / len(completeness_scores)
-    elif len(output.strip()) > 0:
-        # Heuristic: non-empty output with passing assertions = good
+    if len(output.strip()) > 0:
         completeness = min(1.0, len(output.strip()) / 50)
     else:
         completeness = 0.0

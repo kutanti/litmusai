@@ -450,6 +450,7 @@ async def evaluate(
     verbose: bool = True,
     *,
     log_dir: str | Path | None = None,
+    dimension_budget: DimensionBudget | None = None,
 ) -> EvalResults:
     """Run an agent against a test suite and return results.
 
@@ -460,6 +461,7 @@ async def evaluate(
         concurrency: Max parallel evaluations.
         verbose: Show progress bar.
         log_dir: Directory to save full result logs (JSON).
+        dimension_budget: Custom latency/cost budgets for scoring.
 
     Returns:
         :class:`EvalResults` with per-case scores and aggregates.
@@ -479,7 +481,7 @@ async def evaluate(
     )
 
     semaphore = asyncio.Semaphore(concurrency)
-    dim_budget = DimensionBudget()
+    dim_budget = dimension_budget or DimensionBudget()
 
     async def run_case(case: TestCase) -> TestResult:
         async with semaphore:

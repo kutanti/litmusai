@@ -335,7 +335,7 @@ class TestDimensionsCLI:
         result = runner.invoke(cli, ["run", "--help"])
         assert "--dimensions" in result.output
 
-    def test_format_table_with_dimensions(self):
+    def test_format_table_with_dimensions(self, capsys):
         from litmusai.ci import format_table
 
         data = {
@@ -359,8 +359,12 @@ class TestDimensionsCLI:
                 "latency": 0.9, "cost": 0.95, "overall": 0.91,
             },
         }
-        # Should not raise
         format_table(data, show_dimensions=True)
+        captured = capsys.readouterr()
+        # Verify dimension columns rendered
+        assert "Corr" in captured.out
+        assert "1.00" in captured.out
+        assert "overall=0.91" in captured.out
 
     def test_format_table_without_dimensions(self):
         from litmusai.ci import format_table
@@ -451,3 +455,74 @@ class TestDefaultWeights:
     def test_all_dimensions_covered(self):
         assert set(DIMENSIONS) == set(DEFAULT_WEIGHTS.keys())
         assert len(DIMENSIONS) == 7
+
+
+class TestEdgeCases:
+    def test_budget_zero_range_no_crash(self):
+        """DimensionBudget with max <= target should not crash."""
+        b = DimensionBudget(
+            latency_ms=2000, latency_max_ms=2000,
+            cost_usd=0.01, cost_max_usd=0.01,
+        )
+        assert b.score_latency(3000) == 0.0
+        assert b.score_cost(0.05) == 0.0
+
+    def test_budget_inverted_range_no_crash(self):
+        b = DimensionBudget(
+            latency_ms=5000, latency_max_ms=1000,
+        )
+        # max < target means any value over target returns 0.0
+        # but 3000 < 5000 (target), so it's still 1.0
+        assert b.score_latency(3000) == 1.0
+        # Value above target hits the guard
+        assert b.score_latency(6000) == 0.0
+
+    @pytest.mark.asyncio
+    async def test_evaluate_with_custom_budget(self):
+        from litmusai import Agent, TestCase, TestSuite, evaluate
+        from litmusai.core.agent import AgentResponse
+
+        async def fn(task, **kw):
+            return AgentResponse(
+                output="42", model="test",
+                cost=0.05,  # over budget
+            )
+
+        agent = Agent(fn=fn, name="test", model="test")
+        suite = TestSuite(name="test")
+        suite.add_case(TestCase(
+            id="q1", name="Q", task="What?",
+            expected_contains=["42"],
+        ))
+
+        budget = DimensionBudget(cost_usd=0.001, cost_max_usd=0.10)
+        results = await evaluate(
+            agent, suite, verbose=False, dimension_budget=budget,
+        )
+        dims = results.results[0].dimensions
+        assert dims is not None
+        assert dims.cost < 1.0  # cost over budget
+
+
+class TestResultsToDictDimensions:
+    @pytest.mark.asyncio
+    async def test_results_to_dict_includes_dimensions(self):
+        from litmusai import Agent, TestCase, TestSuite, evaluate
+        from litmusai.ci import results_to_dict
+        from litmusai.core.agent import AgentResponse
+
+        async def fn(task, **kw):
+            return AgentResponse(output="42", model="test")
+
+        agent = Agent(fn=fn, name="test", model="test")
+        suite = TestSuite(name="test")
+        suite.add_case(TestCase(
+            id="q1", name="Q", task="What?",
+            expected_contains=["42"],
+        ))
+
+        results = await evaluate(agent, suite, verbose=False)
+        d = results_to_dict(results)
+        assert "dimensions" in d
+        assert "dimensions" in d["results"][0]
+        assert "correctness" in d["results"][0]["dimensions"]

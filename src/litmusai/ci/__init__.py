@@ -168,7 +168,7 @@ def compare_with_baseline(
 
 def results_to_dict(results: EvalResults) -> dict[str, Any]:
     """Convert EvalResults to a serializable dict."""
-    return {
+    d: dict[str, Any] = {
         "agent": results.agent_name,
         "suite": results.suite_name,
         "timestamp": results.timestamp,
@@ -190,10 +190,18 @@ def results_to_dict(results: EvalResults) -> dict[str, Any]:
                 "latency_ms": round(r.latency_ms, 1),
                 "cost": round(r.cost, 6),
                 "output": r.response.output[:500],
+                **(
+                    {"dimensions": r.dimensions.to_dict()}
+                    if r.dimensions else {}
+                ),
             }
             for r in results.results
         ],
     }
+    avg_dim = results.avg_dimensions
+    if avg_dim:
+        d["dimensions"] = avg_dim.to_dict()
+    return d
 
 
 # ─── Report Formatting ────────────────────────────────────────────
