@@ -168,7 +168,7 @@ def compare_with_baseline(
 
 def results_to_dict(results: EvalResults) -> dict[str, Any]:
     """Convert EvalResults to a serializable dict."""
-    return {
+    d: dict[str, Any] = {
         "agent": results.agent_name,
         "suite": results.suite_name,
         "timestamp": results.timestamp,
@@ -190,10 +190,18 @@ def results_to_dict(results: EvalResults) -> dict[str, Any]:
                 "latency_ms": round(r.latency_ms, 1),
                 "cost": round(r.cost, 6),
                 "output": r.response.output[:500],
+                **(
+                    {"dimensions": r.dimensions.to_dict()}
+                    if r.dimensions else {}
+                ),
             }
             for r in results.results
         ],
     }
+    avg_dim = results.avg_dimensions
+    if avg_dim:
+        d["dimensions"] = avg_dim.to_dict()
+    return d
 
 
 # ─── Report Formatting ────────────────────────────────────────────
@@ -315,7 +323,10 @@ def format_report(
     return "\n".join(lines)
 
 
-def format_table(data: dict[str, Any]) -> None:
+def format_table(
+    data: dict[str, Any],
+    show_dimensions: bool = False,
+) -> None:
     """Print results as a rich table to console."""
     summary = data.get("summary", {})
 
@@ -324,30 +335,65 @@ def format_table(data: dict[str, Any]) -> None:
     table.add_column("Test", style="bold")
     table.add_column("Status", justify="center")
     table.add_column("Score", justify="center")
+    if show_dimensions:
+        table.add_column("Corr", justify="right")
+        table.add_column("Comp", justify="right")
+        table.add_column("Fmt", justify="right")
+        table.add_column("Rel", justify="right")
+        table.add_column("Safe", justify="right")
     table.add_column("Latency", justify="right")
     table.add_column("Cost", justify="right")
 
     for i, r in enumerate(data.get("results", []), 1):
         status = "✅" if r.get("passed") else "❌"
-        table.add_row(
+        row = [
             str(i),
             r.get("test", ""),
             status,
             f"{r.get('score', 0):.2f}",
+        ]
+        if show_dimensions:
+            dims = r.get("dimensions", {})
+            row.extend([
+                f"{dims.get('correctness', 0):.2f}",
+                f"{dims.get('completeness', 0):.2f}",
+                f"{dims.get('format', 0):.2f}",
+                f"{dims.get('relevance', 0):.2f}",
+                f"{dims.get('safety', 0):.2f}",
+            ])
+        row.extend([
             f"{r.get('latency_ms', 0):.0f}ms",
             f"${r.get('cost', 0):.4f}",
-        )
+        ])
+        table.add_row(*row)
 
     console.print(table)
 
     pass_rate = summary.get("pass_rate", 0)
-    console.print(
+    summary_line = (
         f"\n✅ {summary.get('passed', 0)}/{summary.get('total', 0)} passed "
         f"| ❌ {summary.get('failed', 0)} failed "
         f"| 💰 ${summary.get('total_cost', 0):.4f} "
         f"| ⚡ {summary.get('avg_latency_ms', 0):.0f}ms avg"
         f"| Pass rate: {pass_rate:.0%}"
     )
+    console.print(summary_line)
+
+    # Show dimension summary if available
+    if show_dimensions and "dimensions" in data:
+        dims = data["dimensions"]
+        dim_line = (
+            f"📐 Dimensions: "
+            f"correctness={dims.get('correctness', 0):.2f} "
+            f"completeness={dims.get('completeness', 0):.2f} "
+            f"format={dims.get('format', 0):.2f} "
+            f"relevance={dims.get('relevance', 0):.2f} "
+            f"safety={dims.get('safety', 0):.2f} "
+            f"latency={dims.get('latency', 0):.2f} "
+            f"cost={dims.get('cost', 0):.2f} "
+            f"→ overall={dims.get('overall', 0):.2f}"
+        )
+        console.print(dim_line)
 
 
 # ─── Main Entry Point ─────────────────────────────────────────────
@@ -365,6 +411,7 @@ async def run_evaluation(
     threshold: float | None = None,
     runs: int = 1,
     log_dir: str | None = None,
+    show_dimensions: bool = False,
 ) -> dict[str, Any]:
     """Run a full evaluation and return results.
 
@@ -484,7 +531,7 @@ async def run_evaluation(
 
     # Output results
     if fmt == "table":
-        format_table(data)
+        format_table(data, show_dimensions=show_dimensions)
     elif fmt == "json":
         console.print(json.dumps(output_payload, indent=2))
     elif fmt in ("markdown", "github"):

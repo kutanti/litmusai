@@ -28,6 +28,11 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from litmusai.core.agent import Agent, AgentResponse
 from litmusai.core.scorer import Scorer, ScoreResult
 from litmusai.core.suite import TestCase, TestSuite
+from litmusai.scoring import (
+    DimensionBudget,
+    ScoreVector,
+    build_score_vector,
+)
 
 console = Console()
 
@@ -52,10 +57,11 @@ class TestResult:
     cost: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
+    dimensions: ScoreVector | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary for JSON logging."""
-        return {
+        d = {
             "case_id": self.case.id,
             "case_name": self.case.name,
             "task": self.case.task,
@@ -72,6 +78,9 @@ class TestResult:
             "success": self.response.success,
             "error": self.response.error,
         }
+        if self.dimensions:
+            d["dimensions"] = self.dimensions.to_dict()
+        return d
 
 
 @dataclass
@@ -114,6 +123,18 @@ class EvalResults:
             return 0.0
         return sum(r.score.score for r in self.results) / len(self.results)
 
+    @property
+    def avg_dimensions(self) -> ScoreVector | None:
+        """Average :class:`ScoreVector` across all results."""
+        from litmusai.scoring import aggregate_vectors
+
+        vectors = [
+            r.dimensions for r in self.results if r.dimensions
+        ]
+        if not vectors:
+            return None
+        return aggregate_vectors(vectors)
+
     def summary(self) -> str:
         parts = [
             f"✅ {self.passed}/{len(self.results)} passed",
@@ -128,7 +149,7 @@ class EvalResults:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary for JSON logging."""
-        return {
+        d: dict[str, Any] = {
             "agent_name": self.agent_name,
             "suite_name": self.suite_name,
             "timestamp": self.timestamp,
@@ -146,6 +167,10 @@ class EvalResults:
             },
             "results": [r.to_dict() for r in self.results],
         }
+        avg_dim = self.avg_dimensions
+        if avg_dim:
+            d["dimensions"] = avg_dim.to_dict()
+        return d
 
     def save(self, path: str | Path) -> Path:
         """Save results to a JSON file."""
@@ -425,6 +450,7 @@ async def evaluate(
     verbose: bool = True,
     *,
     log_dir: str | Path | None = None,
+    dimension_budget: DimensionBudget | None = None,
 ) -> EvalResults:
     """Run an agent against a test suite and return results.
 
@@ -435,6 +461,7 @@ async def evaluate(
         concurrency: Max parallel evaluations.
         verbose: Show progress bar.
         log_dir: Directory to save full result logs (JSON).
+        dimension_budget: Custom latency/cost budgets for scoring.
 
     Returns:
         :class:`EvalResults` with per-case scores and aggregates.
@@ -456,12 +483,20 @@ async def evaluate(
     )
 
     semaphore = asyncio.Semaphore(concurrency)
+    dim_budget = dimension_budget or DimensionBudget()
 
     async def run_case(case: TestCase) -> TestResult:
         async with semaphore:
             response = await agent.run(case.task)
             # Use async scoring to avoid blocking the event loop
             score = await scorer.ascore(case, response)
+
+            # Build multi-dimensional score vector
+            dimensions = build_score_vector(
+                score_result=score,
+                response=response,
+                budget=dim_budget,
+            )
 
             return TestResult(
                 case=case,
@@ -472,6 +507,7 @@ async def evaluate(
                 cost=response.cost,
                 input_tokens=response.input_tokens,
                 output_tokens=response.output_tokens,
+                dimensions=dimensions,
             )
 
     def _accumulate(result: TestResult) -> None:

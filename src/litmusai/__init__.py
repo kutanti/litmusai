@@ -34,6 +34,12 @@ from litmusai.profiles import (
     list_profiles,
     register_profile,
 )
+from litmusai.scoring import (
+    DimensionBudget,
+    ScoreVector,
+    aggregate_vectors,
+    build_score_vector,
+)
 
 __all__ = [
     # Core
@@ -79,4 +85,9 @@ __all__ = [
     "get_profile",
     "list_profiles",
     "register_profile",
+    # Multi-dimensional scoring
+    "ScoreVector",
+    "DimensionBudget",
+    "build_score_vector",
+    "aggregate_vectors",
 ]
