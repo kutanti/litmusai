@@ -201,12 +201,12 @@ litmus init                                          # scaffold project
 ```bash
 git clone https://github.com/kutanti/litmusai.git
 cd litmusai && pip install -e ".[dev]"
-pytest                    # 729 tests
+pytest                    # 803 tests
 ruff check src/ tests/    # lint
 mypy src/litmusai/        # types
 ```
 
-~9K lines of code, 35 source files. MIT licensed.
+~11K lines of code, 37 source files. MIT licensed.
 
 ## License
 
