@@ -24,9 +24,12 @@ import json as _json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
+
+if TYPE_CHECKING:
+    from litmusai.conversation import Conversation
 
 
 def _safe_int(value: Any) -> int:
@@ -192,7 +195,7 @@ class Agent:
 
     def conversation(
         self, system_prompt: str | None = None,
-    ) -> Any:
+    ) -> Conversation:
         """Create a stateful conversation context.
 
         Usage::
@@ -674,13 +677,18 @@ class Agent:
 
         async def openai_chat_fn(task: str, **kwargs: Any) -> AgentResponse:
             messages: list[dict[str, str]] = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
 
             # Support conversation history for multi-turn
             history = kwargs.pop("history", None)
             if history:
+                # If history has a system message, skip the agent-level one
+                # to avoid duplicate system prompts
+                has_system = any(m.get("role") == "system" for m in history)
+                if system_prompt and not has_system:
+                    messages.append({"role": "system", "content": system_prompt})
                 messages.extend(history)
+            elif system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
 
             messages.append({"role": "user", "content": task})
 
@@ -862,13 +870,16 @@ class Agent:
 
         async def azure_chat_fn(task: str, **kwargs: Any) -> AgentResponse:
             messages: list[dict[str, str]] = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
 
             # Support conversation history for multi-turn
             history = kwargs.pop("history", None)
             if history:
+                has_system = any(m.get("role") == "system" for m in history)
+                if system_prompt and not has_system:
+                    messages.append({"role": "system", "content": system_prompt})
                 messages.extend(history)
+            elif system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
 
             messages.append({"role": "user", "content": task})
 

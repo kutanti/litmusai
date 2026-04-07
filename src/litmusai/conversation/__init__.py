@@ -34,7 +34,7 @@ import yaml
 
 if TYPE_CHECKING:
     from litmusai.assertions import Assertion
-    from litmusai.core.agent import Agent
+    from litmusai.core.agent import Agent, AgentResponse
 
 
 @dataclass
@@ -51,7 +51,6 @@ class Step:
     user: str
     assertions: list[Assertion] = field(default_factory=list)
     name: str = ""
-    max_tokens: int | None = None
 
 
 @dataclass
@@ -228,7 +227,7 @@ class Conversation:
         """Number of user turns so far."""
         return sum(1 for m in self._history if m["role"] == "user")
 
-    async def send(self, message: str) -> Any:
+    async def send(self, message: str) -> AgentResponse:
         """Send a message and get a response.
 
         Appends both user message and assistant response to history.
@@ -239,8 +238,6 @@ class Conversation:
         Returns:
             :class:`~litmusai.core.agent.AgentResponse`.
         """
-        from litmusai.core.agent import AgentResponse
-
         self._history.append({"role": "user", "content": message})
 
         start = time.monotonic()
@@ -249,15 +246,10 @@ class Conversation:
         )
         elapsed = (time.monotonic() - start) * 1000
 
-        if isinstance(response, AgentResponse):
-            response.latency_ms = elapsed
-            self._history.append(
-                {"role": "assistant", "content": response.output},
-            )
-        else:
-            self._history.append(
-                {"role": "assistant", "content": str(response)},
-            )
+        response.latency_ms = elapsed
+        self._history.append(
+            {"role": "assistant", "content": response.output},
+        )
 
         return response
 
@@ -295,6 +287,7 @@ class ConversationRunner:
         """
         from litmusai.core.scorer import Scorer, ScoreResult
 
+        scorer = Scorer()
         result = ConversationResult(
             case=case,
             total_steps=len(case.steps),
@@ -309,7 +302,6 @@ class ConversationRunner:
 
                 # Score this step
                 if step.assertions:
-                    scorer = Scorer()
                     from litmusai.core.suite import TestCase
 
                     temp_case = TestCase(
@@ -469,6 +461,10 @@ def load_multi_turn_suite(
     path = Path(path)
     with open(path) as f:
         data = yaml.safe_load(f)
+
+    if not isinstance(data, dict):
+        msg = f"Expected a mapping at root of {path}, got {type(data).__name__}"
+        raise ValueError(msg)
 
     cases: list[MultiTurnCase] = []
 
