@@ -13,9 +13,7 @@ pip install litmuseval
 
 ## Why I built this
 
-I was switching between GPT-4.1 and Claude, tweaking prompts, changing architectures — and I had no idea if anything was actually getting better. My "evaluation" was typing questions into a chat window and eyeballing the responses.
-
-So I built this. Now I can run the same tests across models and know exactly what's working.
+Evaluating AI agents by hand doesn't scale. I needed something that could run the same tests across any model and tell me what actually changed — cost, accuracy, safety. This is that.
 
 ## Quick start
 
