@@ -27,6 +27,13 @@ from litmusai.core.runner import compare, evaluate, multi_evaluate
 from litmusai.core.scorer import Scorer
 from litmusai.core.suite import TestCase, TestSuite
 from litmusai.globals import configure, get_config, reset_config
+from litmusai.ground_truth import (
+    GroundTruth,
+    apply_ground_truth,
+    ground_truth_stats,
+    load_ground_truth,
+    validate_ground_truth,
+)
 from litmusai.pipeline import Pipeline, PipelineResult, run_pipeline
 from litmusai.profiles import (
     EvalProfile,
@@ -90,4 +97,10 @@ __all__ = [
     "DimensionBudget",
     "build_score_vector",
     "aggregate_vectors",
+    # Ground truth
+    "GroundTruth",
+    "load_ground_truth",
+    "validate_ground_truth",
+    "apply_ground_truth",
+    "ground_truth_stats",
 ]

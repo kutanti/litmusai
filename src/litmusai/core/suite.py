@@ -106,6 +106,7 @@ class TestSuite:
         for case_data in data.get("cases", []):
             # Parse YAML assertions into Assertion objects
             raw_assertions = case_data.pop("assertions", None)
+            raw_ground_truth = case_data.pop("ground_truth", None)
             case = TestCase(**case_data)
             if raw_assertions is not None:
                 if not isinstance(raw_assertions, list):
@@ -118,6 +119,14 @@ class TestSuite:
                 case.assertions = _parse_yaml_assertions(
                     raw_assertions,
                 )
+            # Auto-generate assertions from ground_truth if no
+            # explicit assertions were provided
+            if not case.assertions and raw_ground_truth:
+                from litmusai.ground_truth import GroundTruth
+
+                gt = GroundTruth.from_dict(raw_ground_truth)
+                case.assertions = gt.to_assertions()
+                case.metadata["ground_truth"] = gt.to_dict()
             suite.add_case(case)
 
         return suite

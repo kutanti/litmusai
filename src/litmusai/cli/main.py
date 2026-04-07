@@ -828,6 +828,71 @@ def dashboard() -> None:
     console.print("🌐 Dashboard coming soon!")
 
 
+@cli.command(name="validate-ground-truth")
+@click.argument("path")
+def validate_ground_truth_cmd(path: str) -> None:
+    """Validate a ground truth YAML file.
+
+    Examples:
+
+        litmus validate-ground-truth ground_truth.yaml
+    """
+    from litmusai.ground_truth import validate_ground_truth
+
+    errors = validate_ground_truth(path)
+    if errors:
+        console.print(f"[red]Found {len(errors)} error(s):[/red]")
+        for err in errors:
+            console.print(f"  ❌ {err}")
+        sys.exit(1)
+    else:
+        console.print(f"[green]✅ {path} is valid[/green]")
+
+
+@cli.command(name="ground-truth-stats")
+@click.option(
+    "--suite", "-s", required=True,
+    help="Test suite name or YAML path",
+)
+@click.option(
+    "--ground-truth", "-g", required=True,
+    help="Ground truth YAML file",
+)
+def ground_truth_stats_cmd(suite: str, ground_truth: str) -> None:
+    """Show ground truth coverage for a test suite.
+
+    Examples:
+
+        litmus ground-truth-stats -s coding -g ground_truth.yaml
+    """
+    from litmusai.core.suite import TestSuite
+    from litmusai.ground_truth import (
+        ground_truth_stats,
+        load_ground_truth,
+    )
+
+    try:
+        s = TestSuite.load(suite)
+    except ValueError:
+        s = TestSuite.from_yaml(suite)
+
+    gt = load_ground_truth(ground_truth)
+    stats = ground_truth_stats(s, gt)
+
+    console.print(f"\n📋 Ground Truth Coverage — {s.name}")
+    console.print(f"  Total cases: {stats['total']}")
+    console.print(
+        f"  Covered: {stats['covered']}/{stats['total']} "
+        f"({stats['coverage_pct']:.0f}%)"
+    )
+    if stats["subjective"] > 0:
+        console.print(f"  Subjective: {stats['subjective']}")
+    if stats["missing"] > 0:
+        console.print(f"  [yellow]Missing: {stats['missing']}[/yellow]")
+        for mid in stats["missing_ids"]:
+            console.print(f"    — {mid}")
+
+
 # ─── Helpers ─────────────────────────────────────────────────────
 
 
