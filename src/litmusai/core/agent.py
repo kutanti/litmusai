@@ -154,6 +154,8 @@ class Agent:
         Args:
             task: The task/prompt to send to the agent.
             **kwargs: Additional arguments passed to the agent function.
+                Includes ``history`` (list of message dicts) for
+                multi-turn conversations.
 
         Returns:
             AgentResponse with normalized output, cost, latency, etc.
@@ -187,6 +189,27 @@ class Agent:
                 latency_ms=elapsed,
                 model=self.model,
             )
+
+    def conversation(
+        self, system_prompt: str | None = None,
+    ) -> Any:
+        """Create a stateful conversation context.
+
+        Usage::
+
+            async with agent.conversation() as conv:
+                r1 = await conv.send("Hello")
+                r2 = await conv.send("What did I just say?")
+
+        Args:
+            system_prompt: Optional system prompt.
+
+        Returns:
+            :class:`~litmusai.conversation.Conversation` context manager.
+        """
+        from litmusai.conversation import Conversation
+
+        return Conversation(self, system_prompt=system_prompt)
 
     def _parse_dict_response(self, result: dict[str, Any], elapsed: float) -> AgentResponse:
         """Parse a dictionary response into an AgentResponse."""
@@ -653,6 +676,12 @@ class Agent:
             messages: list[dict[str, str]] = []
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
+
+            # Support conversation history for multi-turn
+            history = kwargs.pop("history", None)
+            if history:
+                messages.extend(history)
+
             messages.append({"role": "user", "content": task})
 
             body: dict[str, Any] = {
@@ -835,6 +864,12 @@ class Agent:
             messages: list[dict[str, str]] = []
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
+
+            # Support conversation history for multi-turn
+            history = kwargs.pop("history", None)
+            if history:
+                messages.extend(history)
+
             messages.append({"role": "user", "content": task})
 
             body: dict[str, Any] = {

@@ -21,6 +21,15 @@ from litmusai.assertions import (
     Semantic,
     Weighted,
 )
+from litmusai.conversation import (
+    Conversation,
+    ConversationResult,
+    ConversationRunner,
+    MultiTurnCase,
+    Step,
+    StepResult,
+    load_multi_turn_suite,
+)
 from litmusai.core.agent import Agent, AgentResponse, AgentStep, ToolCall
 from litmusai.core.reporter import Reporter
 from litmusai.core.runner import compare, evaluate, multi_evaluate
@@ -90,4 +99,12 @@ __all__ = [
     "DimensionBudget",
     "build_score_vector",
     "aggregate_vectors",
+    # Multi-turn conversation
+    "Step",
+    "MultiTurnCase",
+    "StepResult",
+    "ConversationResult",
+    "ConversationRunner",
+    "Conversation",
+    "load_multi_turn_suite",
 ]
