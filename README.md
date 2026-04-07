@@ -13,7 +13,7 @@ pip install litmuseval
 
 ## Why I built this
 
-Evaluating AI agents by hand doesn't scale. I needed something that could run the same tests across any model and tell me what actually changed — cost, accuracy, safety. This is that.
+Evaluating AI agents by hand doesn't scale. I needed something that could run the same tests across any model and agent worklflows and tell me what actually changed — cost, accuracy, safety. This is that.
 
 ## Quick start
 
