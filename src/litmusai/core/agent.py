@@ -24,9 +24,12 @@ import json as _json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
+
+if TYPE_CHECKING:
+    from litmusai.conversation import Conversation
 
 
 def _safe_int(value: Any) -> int:
@@ -154,6 +157,8 @@ class Agent:
         Args:
             task: The task/prompt to send to the agent.
             **kwargs: Additional arguments passed to the agent function.
+                Includes ``history`` (list of message dicts) for
+                multi-turn conversations.
 
         Returns:
             AgentResponse with normalized output, cost, latency, etc.
@@ -187,6 +192,27 @@ class Agent:
                 latency_ms=elapsed,
                 model=self.model,
             )
+
+    def conversation(
+        self, system_prompt: str | None = None,
+    ) -> Conversation:
+        """Create a stateful conversation context.
+
+        Usage::
+
+            async with agent.conversation() as conv:
+                r1 = await conv.send("Hello")
+                r2 = await conv.send("What did I just say?")
+
+        Args:
+            system_prompt: Optional system prompt.
+
+        Returns:
+            :class:`~litmusai.conversation.Conversation` context manager.
+        """
+        from litmusai.conversation import Conversation
+
+        return Conversation(self, system_prompt=system_prompt)
 
     def _parse_dict_response(self, result: dict[str, Any], elapsed: float) -> AgentResponse:
         """Parse a dictionary response into an AgentResponse."""
@@ -651,8 +677,19 @@ class Agent:
 
         async def openai_chat_fn(task: str, **kwargs: Any) -> AgentResponse:
             messages: list[dict[str, str]] = []
-            if system_prompt:
+
+            # Support conversation history for multi-turn
+            history = kwargs.pop("history", None)
+            if history:
+                # If history has a system message, skip the agent-level one
+                # to avoid duplicate system prompts
+                has_system = any(m.get("role") == "system" for m in history)
+                if system_prompt and not has_system:
+                    messages.append({"role": "system", "content": system_prompt})
+                messages.extend(history)
+            elif system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
+
             messages.append({"role": "user", "content": task})
 
             body: dict[str, Any] = {
@@ -833,8 +870,17 @@ class Agent:
 
         async def azure_chat_fn(task: str, **kwargs: Any) -> AgentResponse:
             messages: list[dict[str, str]] = []
-            if system_prompt:
+
+            # Support conversation history for multi-turn
+            history = kwargs.pop("history", None)
+            if history:
+                has_system = any(m.get("role") == "system" for m in history)
+                if system_prompt and not has_system:
+                    messages.append({"role": "system", "content": system_prompt})
+                messages.extend(history)
+            elif system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
+
             messages.append({"role": "user", "content": task})
 
             body: dict[str, Any] = {
