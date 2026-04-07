@@ -471,6 +471,8 @@ async def evaluate(
 
     config: dict[str, Any] = {
         "concurrency": concurrency,
+        "model": agent.model,
+        "model_params": dict(agent.model_params),  # defensive copy
     }
 
     results = EvalResults(

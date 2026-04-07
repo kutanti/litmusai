@@ -182,6 +182,18 @@ def run(
         # command uses run_evaluation() which doesn't support safety
         # inline. Use `litmus scan` separately for safety scanning,
         # or use Pipeline() in Python for the full profile experience.
+
+        # Log profile model params for user awareness
+        model_params = prof.get_model_params()
+        if model_params:
+            parts = [f"{k}={v}" for k, v in model_params.items()]
+            click.echo(
+                f"ℹ️  Profile '{profile}' recommends: "
+                f"{', '.join(parts)}. "
+                f"Pass these to Agent.from_openai_chat() for "
+                f"reproducible results.",
+                err=True,
+            )
     else:
         ctx = click.get_current_context()
 
@@ -280,6 +292,10 @@ def profiles() -> None:
             if p.safety:
                 details.append(f"safety={p.safety_depth}")
             details.append(f"threshold={p.threshold}")
+            if p.temperature is not None:
+                details.append(f"temperature={p.temperature}")
+            if p.seed is not None:
+                details.append(f"seed={p.seed}")
             if p.report:
                 details.append(f"report={p.report}")
             console.print(f"    [dim]{' · '.join(details)}[/dim]\n")

@@ -1,6 +1,6 @@
 """LitmusAI — The open-source evaluation framework for AI agents."""
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 from litmusai.assertions import (
     All,

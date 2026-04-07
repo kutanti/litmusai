@@ -140,11 +140,13 @@ class Agent:
         name: str = "agent",
         model: str = "",
         metadata: dict[str, Any] | None = None,
+        model_params: dict[str, Any] | None = None,
     ):
         self.fn = fn
         self.name = name
         self.model = model
         self.metadata = metadata or {}
+        self.model_params = model_params or {}
 
     async def run(self, task: str, **kwargs: Any) -> AgentResponse:
         """Execute the agent on a given task.
@@ -587,6 +589,7 @@ class Agent:
         system_prompt: str | None = None,
         temperature: float | None = None,
         max_tokens: int = 1024,
+        seed: int | None = None,
         timeout: float = 120,
         extra_headers: dict[str, str] | None = None,
         extra_body: dict[str, Any] | None = None,
@@ -612,6 +615,7 @@ class Agent:
             system_prompt: Optional system message prepended to every call.
             temperature: Sampling temperature (``None`` = provider default).
             max_tokens: Maximum tokens in the completion.
+            seed: Random seed for reproducible outputs (provider support varies).
             timeout: HTTP timeout in seconds.
             extra_headers: Additional HTTP headers.
             extra_body: Extra fields merged into the request body.
@@ -658,6 +662,8 @@ class Agent:
             }
             if temperature is not None:
                 body["temperature"] = temperature
+            if seed is not None:
+                body["seed"] = seed
             if extra_body:
                 body.update(extra_body)
 
@@ -732,7 +738,24 @@ class Agent:
                 tool_calls=tool_calls,
             )
 
-        return cls(fn=openai_chat_fn, name=display_name, model=model)
+        # Build model_params for logging
+        params: dict[str, Any] = {"max_tokens": max_tokens}
+        if temperature is not None:
+            params["temperature"] = temperature
+        if seed is not None:
+            params["seed"] = seed
+        # Reflect extra_body overrides in logged params
+        if extra_body:
+            for key in ("temperature", "max_tokens", "seed"):
+                if key in extra_body:
+                    params[key] = extra_body[key]
+
+        return cls(
+            fn=openai_chat_fn,
+            name=display_name,
+            model=model,
+            model_params=params,
+        )
 
     @classmethod
     def from_azure(
@@ -855,7 +878,16 @@ class Agent:
                 cost=cost,
             )
 
-        return cls(fn=azure_chat_fn, name=display_name, model=deployment)
+        params: dict[str, Any] = {"max_tokens": max_tokens}
+        if temperature is not None:
+            params["temperature"] = temperature
+
+        return cls(
+            fn=azure_chat_fn,
+            name=display_name,
+            model=deployment,
+            model_params=params,
+        )
 
     @classmethod
     def from_callable(
