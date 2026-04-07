@@ -112,12 +112,12 @@ class TestToAssertions:
         assert isinstance(assertions[0], JsonValid)
 
     def test_boolean_assertion(self):
-        from litmusai.assertions import Contains
+        from litmusai.assertions import RegexMatch
 
         gt = GroundTruth(answer=True, answer_type="boolean")
         assertions = gt.to_assertions()
         assert len(assertions) == 1
-        assert isinstance(assertions[0], Contains)
+        assert isinstance(assertions[0], RegexMatch)
 
     def test_list_assertion(self):
         gt = GroundTruth(
@@ -131,16 +131,16 @@ class TestToAssertions:
         import litmusai
         from litmusai.assertions import LLMGrade
         litmusai.configure(api_key="test-key")
-
-        gt = GroundTruth(
-            answer_type="subjective",
-            notes="Check reasoning quality",
-        )
-        assertions = gt.to_assertions()
-        assert len(assertions) == 1
-        assert isinstance(assertions[0], LLMGrade)
-
-        litmusai.reset_config()
+        try:
+            gt = GroundTruth(
+                answer_type="subjective",
+                notes="Check reasoning quality",
+            )
+            assertions = gt.to_assertions()
+            assert len(assertions) == 1
+            assert isinstance(assertions[0], LLMGrade)
+        finally:
+            litmusai.reset_config()
 
 
 class TestLoadGroundTruth:

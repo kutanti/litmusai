@@ -122,6 +122,12 @@ class TestSuite:
             # Auto-generate assertions from ground_truth if no
             # explicit assertions were provided
             if not case.assertions and raw_ground_truth:
+                if not isinstance(raw_ground_truth, dict):
+                    msg = (
+                        f"'ground_truth' must be a mapping in case "
+                        f"'{case.id}', got {type(raw_ground_truth).__name__}"
+                    )
+                    raise ValueError(msg)
                 from litmusai.ground_truth import GroundTruth
 
                 gt = GroundTruth.from_dict(raw_ground_truth)

@@ -85,21 +85,29 @@ class GroundTruth:
         assertions: list[Any] = []
 
         if self.answer_type == "numeric" and self.answer is not None:
-            num_val = float(self.answer) if not isinstance(self.answer, (dict, list)) else 0.0
+            if isinstance(self.answer, (dict, list)):
+                msg = (
+                    f"answer_type is 'numeric' but answer is "
+                    f"{type(self.answer).__name__}, expected a number"
+                )
+                raise ValueError(msg)
+            num_val = float(self.answer)
             assertions.append(
                 Numeric(num_val, tolerance=self.tolerance or 0.01),
             )
         elif self.answer_type == "json":
             assertions.append(JsonValid())
             if self.answer is not None:
-                # Also check the answer contains expected keys/values
-                assertions.append(
-                    Contains([str(k) for k in self.answer])
-                    if isinstance(self.answer, dict)
-                    else Contains([str(self.answer)])
-                )
+                # Check for expected keys in dict answers
+                if isinstance(self.answer, dict):
+                    assertions.append(Contains([str(k) for k in self.answer]))
+                else:
+                    assertions.append(Contains([str(self.answer)]))
         elif self.answer_type == "boolean" and self.answer is not None:
-            assertions.append(Contains([str(self.answer).lower()]))
+            from litmusai.assertions import RegexMatch
+            # Word-boundary match to avoid "untrue" matching "true"
+            pattern = rf"\b{str(self.answer).lower()}\b"
+            assertions.append(RegexMatch(pattern))
         elif self.answer_type == "list" and isinstance(self.answer, list):
             for item in self.answer:
                 assertions.append(Contains([str(item)]))
@@ -107,14 +115,20 @@ class GroundTruth:
             # text type
             assertions.append(Contains([str(self.answer)]))
 
-        # Handle alternatives — wrap in AnyOf
+        # Handle alternatives — wrap the last content assertion in AnyOf
         if self.alternatives and assertions:
             alt_assertions = [
                 Contains([alt]) for alt in self.alternatives
             ]
-            # Primary assertion OR any alternative
-            primary = assertions[0]
-            assertions[0] = AnyOf(primary, *alt_assertions)
+            # Find the last content assertion (skip structural like JsonValid)
+            for idx in range(len(assertions) - 1, -1, -1):
+                if isinstance(assertions[idx], (Contains, Numeric)):
+                    primary = assertions[idx]
+                    assertions[idx] = AnyOf(primary, *alt_assertions)
+                    break
+            else:
+                # No content assertion found, append alternatives separately
+                assertions.append(AnyOf(*alt_assertions))
 
         return assertions
 
@@ -176,6 +190,9 @@ def load_ground_truth(path: str | Path) -> dict[str, GroundTruth]:
     path = Path(path)
     with open(path) as f:
         data = yaml.safe_load(f)
+
+    if not isinstance(data, dict):
+        return {}
 
     entries: dict[str, GroundTruth] = {}
 
@@ -240,6 +257,13 @@ def validate_ground_truth(
         gt_data = item.get("ground_truth")
         if not gt_data:
             errors.append(f"Case '{case_id}': missing 'ground_truth'")
+            continue
+
+        if not isinstance(gt_data, dict):
+            errors.append(
+                f"Case '{case_id}': 'ground_truth' must be a mapping, "
+                f"got {type(gt_data).__name__}"
+            )
             continue
 
         try:
