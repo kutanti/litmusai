@@ -444,7 +444,7 @@ async def multi_evaluate(
 
 async def evaluate(
     agent: Agent,
-    suite: TestSuite,
+    suite: TestSuite | list[TestCase],
     scorer: Scorer | None = None,
     concurrency: int = 5,
     verbose: bool = True,
@@ -456,7 +456,7 @@ async def evaluate(
 
     Args:
         agent: The agent to evaluate.
-        suite: Test suite with cases to run.
+        suite: Test suite or plain list of test cases.
         scorer: Custom scorer (default: auto-detect assertions).
         concurrency: Max parallel evaluations.
         verbose: Show progress bar.
@@ -466,6 +466,9 @@ async def evaluate(
     Returns:
         :class:`EvalResults` with per-case scores and aggregates.
     """
+    if isinstance(suite, list):
+        suite = TestSuite(name="evaluation", cases=suite)
+
     scorer = scorer or Scorer()
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%S")
 
