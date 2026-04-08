@@ -43,6 +43,10 @@ from litmusai.ground_truth import (
     load_ground_truth,
     validate_ground_truth,
 )
+from litmusai.memory_poison import (
+    MemoryPoisonScanner,
+    PoisonReport,
+)
 from litmusai.pipeline import Pipeline, PipelineResult, run_pipeline
 from litmusai.profiles import (
     EvalProfile,
@@ -120,4 +124,7 @@ __all__ = [
     "ConversationRunner",
     "Conversation",
     "load_multi_turn_suite",
+    # Memory poisoning scanner
+    "MemoryPoisonScanner",
+    "PoisonReport",
 ]
