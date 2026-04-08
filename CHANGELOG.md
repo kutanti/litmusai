@@ -2,6 +2,32 @@
 
 All notable changes to LitmusAI will be documented in this file.
 
+## [0.3.0] - 2026-04-07
+
+### Added
+- **Multi-turn conversation evaluation** — `MultiTurnCase`, `Step`, `ConversationRunner` for testing multi-step agent workflows. Error compounding detection distinguishes cascade vs independent failures. YAML support for multi-turn suites.
+- **Conversation context manager** — `agent.conversation()` / `Conversation(agent)` maintains message history across turns. Works with OpenAI, Azure, and custom agents.
+- **Ground truth management** — `GroundTruth` dataclass with 6 answer types (text, numeric, json, boolean, list, subjective). Provenance metadata (source, verified_by, date, confidence). Auto-generates assertions from ground truth entries.
+- **Ground truth CLI** — `litmus validate-ground-truth` and `litmus ground-truth-stats` commands
+- **YAML ground_truth key** — define ground truth inline in suite YAML files; assertions auto-generated
+- **Model params logging** — `Agent.model_params` tracks temperature, max_tokens, seed. Logged in evaluation results JSON.
+- **Seed parameter** — `Agent.from_openai_chat(seed=42)` for reproducible outputs
+- **Benchmark profile defaults** — temperature=0.0, seed=42 for reproducibility
+- **Multi-dimensional scoring** — 7 quality dimensions (correctness, completeness, format, relevance, safety, latency, cost) with configurable weights. SVG radar chart in HTML reports.
+- **`--dimensions` CLI flag** — show per-dimension scores in table output
+- **`DimensionBudget`** — configurable latency/cost thresholds for scoring
+- **`evaluate(dimension_budget=...)` kwarg** — custom budgets per evaluation
+
+### Changed
+- README rewritten — developer-focused, model-agnostic, no AI fluff
+- OpenAI and Azure adapters support conversation history via `history` kwarg
+- Duplicate system messages prevented when using conversation history with agent-level system prompts
+- Profile display shows temperature/seed when set
+
+### Fixed
+- CLI version display
+- Profile field validation (concurrency≥1, runs≥1, etc.)
+
 ## [0.2.1] - 2026-04-06
 
 ### Added
