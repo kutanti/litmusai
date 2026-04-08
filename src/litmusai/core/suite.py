@@ -22,8 +22,8 @@ class TestCase:
     """
 
     id: str
-    name: str
-    task: str
+    name: str = ""
+    task: str = ""
     expected: str | None = None
     expected_contains: list[str] = field(default_factory=list)
     expected_not_contains: list[str] = field(default_factory=list)
@@ -32,6 +32,10 @@ class TestCase:
     timeout_seconds: float = 60.0
     metadata: dict[str, Any] = field(default_factory=dict)
     scorer: str = "default"
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            self.name = self.id
 
 
 class TestSuite:

@@ -45,15 +45,15 @@ def init() -> None:
         "description: Example test suite\n\n"
         "cases:\n"
         '  - id: test_001\n'
-        '    name: "Simple greeting"\n'
         '    task: "Say hello"\n'
-        '    expected_contains:\n'
-        '      - "hello"\n'
+        '    assertions:\n'
+        '      - type: contains\n'
+        '        values: ["hello"]\n'
         '  - id: test_002\n'
-        '    name: "Math question"\n'
         '    task: "What is 2 + 2?"\n'
-        '    expected_contains:\n'
-        '      - "4"\n'
+        '    assertions:\n'
+        '      - type: contains\n'
+        '        values: ["4"]\n'
     )
 
     console.print(
