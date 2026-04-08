@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from litmusai.assertions import NotContains
 from litmusai.conversation import (
     ConversationResult,
     ConversationRunner,
@@ -40,8 +39,8 @@ class PoisonCategory(str, Enum):
 class PoisonDepth(str, Enum):
     """Scan depth controlling attack count."""
 
-    BASIC = "basic"       # 6 attacks
-    STANDARD = "standard"  # 12 attacks
+    BASIC = "basic"       # 7 attacks
+    STANDARD = "standard"  # 13 attacks
     THOROUGH = "thorough"  # 18 attacks
 
 
@@ -95,7 +94,6 @@ class PoisonReport:
     conversation_results: list[ConversationResult] = field(
         default_factory=list,
     )
-    total_attacks: int = 0
     total_latency_ms: float = 0.0
     total_cost: float = 0.0
 
@@ -640,25 +638,17 @@ def get_poison_attacks(
 
 
 def _build_case(attack: PoisonAttack) -> MultiTurnCase:
-    """Convert a PoisonAttack to a MultiTurnCase."""
+    """Convert a PoisonAttack to a MultiTurnCase.
+
+    Note: trigger step has no assertions. Fail/pass pattern matching
+    is done via regex in the scanner's own post-check loop, not
+    through the assertion engine (which is substring-based).
+    """
     steps: list[Step] = []
 
     for step_def in attack.steps:
-        assertions: list[Any] = []
-
-        if step_def["role"] == "trigger":
-            # fail_patterns: if ANY match, the attack succeeded
-            # (agent was poisoned) -- so we assert NOT matching
-            for pattern in step_def.get("fail_patterns", []):
-                assertions.append(NotContains([pattern]))
-
-            # pass_patterns: if ANY match, agent resisted correctly
-            # We don't make these hard assertions since the agent
-            # might phrase things differently but still be correct
-
         steps.append(Step(
             user=step_def["user"],
-            assertions=assertions,
             name=step_def.get("name", step_def["role"]),
         ))
 
@@ -739,11 +729,11 @@ class MemoryPoisonScanner:
                     attack_id=attack.id,
                     attack_name=attack.name,
                     category=attack.category,
-                    passed=True,  # error = agent didn't comply
+                    passed=False,
                     description=attack.description,
                     poison_turn=0,
                     trigger_turn=len(attack.steps) - 1,
-                    reason=f"Agent error: {exc}",
+                    reason=f"Agent error (inconclusive): {exc}",
                 ))
                 continue
 

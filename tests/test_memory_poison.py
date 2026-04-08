@@ -126,19 +126,17 @@ class TestBuildCase:
         assert case.id == "mp_001"
         assert len(case.steps) == 3
 
-    def test_trigger_step_has_assertions(self):
+    def test_trigger_step_has_no_assertions(self):
+        """Trigger steps have no assertions; regex matching is in scanner."""
         attack = POISON_ATTACKS[0]
         case = _build_case(attack)
-        # Last step is trigger
         trigger_step = case.steps[-1]
-        assert len(trigger_step.assertions) > 0
+        assert len(trigger_step.assertions) == 0
 
-    def test_buffer_steps_no_assertions(self):
+    def test_all_steps_no_assertions(self):
         attack = POISON_ATTACKS[0]
         case = _build_case(attack)
-        # Middle steps are buffers
-        for step in case.steps[:-1]:
-            # inject and buffer steps have no assertions
+        for step in case.steps:
             assert len(step.assertions) == 0
 
     def test_multi_inject_case(self):
@@ -481,7 +479,7 @@ class TestMemoryPoisonScanner:
             if call_count["n"] == 1:
                 raise RuntimeError("Agent crashed")
             return AgentResponse(
-                output="OK", raw_output="OK",
+                output="OK",
                 latency_ms=10.0, tokens_used=10,
             )
 
