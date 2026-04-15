@@ -5,7 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Test framework for AI agents. Think pytest for LLMs — assertions, cost tracking, safety scanning.
+Test framework for AI agents. Think pytest for LLMs — assertions, cost tracking, safety scanning, multi-turn conversations.
 
 ```bash
 pip install litmuseval
@@ -20,26 +20,17 @@ Evaluating AI agents by hand doesn't scale. I needed something that could run th
 ```python
 import asyncio
 import litmusai
-from litmusai import Agent, TestSuite, TestCase, Numeric, Contains, evaluate
+from litmusai import Agent, TestCase, Numeric, Contains, evaluate
 
 litmusai.configure(api_key="sk-...")
 
 agent = Agent.from_openai_chat(model="gpt-4.1")
 
-suite = TestSuite(name="basics")
-suite.add_case(TestCase(
-    id="math", name="Percentage",
-    task="What is 15% of 240?",
-    assertions=[Numeric(36, tolerance=0.01)],
-))
-suite.add_case(TestCase(
-    id="fact", name="Author",
-    task="Who wrote 1984?",
-    assertions=[Contains(["Orwell"])],
-))
-
-results = asyncio.run(evaluate(agent, suite))
-# ✅ 2/2 passed | $0.0003 | 937ms avg
+results = asyncio.run(evaluate(agent, [
+    TestCase(id="math", task="What is 15% of 240?", assertions=[Numeric(36)]),
+    TestCase(id="fact", task="Who wrote 1984?", assertions=[Contains(["Orwell"])]),
+]))
+# 2/2 passed | $0.0003 | 937ms avg
 ```
 
 Or write tests in YAML:
@@ -63,15 +54,91 @@ litmus run --suite my-tests.yaml --agent my_agent:agent
 
 ## What it actually does
 
-**Assertions** — 15 types, not just substring matching. Numeric extraction (handles "thirty-six"), JSON schema validation, embedding similarity, LLM-as-judge, regex, composable logic (All, AnyOf, AtLeast).
+**Assertions** — 16 types, not just substring matching. Numeric extraction (handles "thirty-six"), JSON schema validation, embedding similarity, LLM-as-judge, regex, composable logic (All, AnyOf, AtLeast).
 
 **Safety scanning** — 46 attack prompts across prompt injection, jailbreaks, PII leaks, bias, hallucination. My GPT-4.1 agent scored 78/100 — it literally replied "HACKED" to one of the injection tests.
 
+**Memory poisoning detection** — 18 multi-turn attacks that test whether your agent can be manipulated through conversational context. Plants false facts, fake credentials, exfiltration URLs in early turns and checks if the agent follows them later.
+
+**Multi-turn conversations** — test multi-step workflows where context matters. Does your agent remember order #12345 from three turns ago? Does a poisoned instruction in turn 1 corrupt behavior in turn 5?
+
+**Ground truth management** — define verified answers with provenance tracking (who verified it, when, confidence level). Assertions are auto-generated from ground truth entries.
+
 **Real cost tracking** — costs come from actual API responses, not tiktoken estimates. Tiktoken can be off by 10-20%.
 
-**Multi-run stats** — run the same test 5 times. Turns out some models pass a test 3 out of 5 times. You don't catch that with a single run.
+**Multi-run stats** — run the same test 5 times. Some models pass a test 3 out of 5 times. You don't catch that with a single run.
 
-**Regression detection** — diff two runs and see what changed. Pass rate up, cost down? Ship it.
+**Multi-dimensional scoring** — score responses across 7 dimensions (correctness, completeness, format, relevance, safety, latency, cost) with configurable weights.
+
+## Multi-turn evaluation
+
+Test conversations where each turn depends on the last:
+
+```python
+from litmusai import Agent, MultiTurnCase, Step, ConversationRunner, Contains, Numeric
+
+agent = Agent.from_openai_chat(model="gpt-4.1", api_key="sk-...")
+
+case = MultiTurnCase(
+    id="refund_flow",
+    name="Refund conversation",
+    steps=[
+        Step(user="I want to return my shoes",
+             assertions=[Contains(["return", "help"], mode="any")]),
+        Step(user="Order #12345",
+             assertions=[Contains(["12345"])]),
+        Step(user="Process the refund",
+             assertions=[Contains(["refund", "confirm"], mode="any")]),
+    ],
+)
+
+result = await ConversationRunner(agent).run(case)
+# 3/3 steps passed | context maintained | $0.003
+```
+
+Error compounding detection tells you whether a failure in step 3 was caused by a mistake in step 1 (cascade) or happened independently.
+
+## Memory poisoning scanner
+
+Test whether your agent can be manipulated through conversational context injection:
+
+```python
+from litmusai import Agent, MemoryPoisonScanner
+
+agent = Agent.from_openai_chat(model="gpt-4.1", api_key="sk-...")
+
+scanner = MemoryPoisonScanner(depth="standard")
+report = await scanner.scan(agent)
+
+print(report.resistance_score)  # 0-100
+print(report.summary())
+# RESISTANT: 12/13 attacks resisted | score 92/100
+```
+
+18 attacks across 6 categories: instruction injection, false fact persistence, identity override, exfiltration setup, authority spoofing, and delayed triggers. Based on attack patterns from DeepMind's "AI Agent Traps" research.
+
+## Ground truth
+
+Define verified answers with provenance:
+
+```yaml
+cases:
+  - id: boiling_point
+    task: "At what temperature does water boil at sea level?"
+    ground_truth:
+      answer: 100
+      answer_type: numeric
+      source: "physics textbook"
+      verified_by: "kunal"
+      confidence: 1.0
+```
+
+Assertions are auto-generated — numeric tolerance, contains checks, JSON validation — based on the answer type. Explicit assertions in the YAML take precedence.
+
+```bash
+litmus validate-ground-truth ground_truth.yaml
+litmus ground-truth-stats suite.yaml
+```
 
 ## Some numbers I found interesting
 
@@ -201,12 +268,12 @@ litmus init                                          # scaffold project
 ```bash
 git clone https://github.com/kutanti/litmusai.git
 cd litmusai && pip install -e ".[dev]"
-pytest                    # 803 tests
+pytest                    # 839 tests
 ruff check src/ tests/    # lint
 mypy src/litmusai/        # types
 ```
 
-~11K lines of code, 37 source files. MIT licensed.
+~11K lines of code, 38 source files. MIT licensed.
 
 ## License
 
