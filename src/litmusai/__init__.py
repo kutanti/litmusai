@@ -1,6 +1,6 @@
 """Test suites, assertions, and reports for AI agent evaluation."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 from litmusai.assertions import (
     All,
