@@ -60,7 +60,7 @@ class PipelineResult:
 
         if self.safety is not None:
             score = self.safety.safety_score
-            verdict = "SAFE" if self.safety.is_safe else "UNSAFE"
+            verdict = self.safety.verdict
             parts.append(f"🛡️ {score:.0f}/100 {verdict}")
 
         if self.multi_run is not None:

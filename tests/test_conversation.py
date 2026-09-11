@@ -171,6 +171,27 @@ class TestConversation:
 
 class TestConversationRunner:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("stop_on_failure", [False, True])
+    async def test_agent_error_without_assertions(self, stop_on_failure):
+        async def fail(task: str, **kwargs: Any) -> AgentResponse:
+            return AgentResponse(output="", success=False, error="HTTP 401")
+
+        case = MultiTurnCase(
+            id="error", name="Error", steps=[Step(user="one"), Step(user="two")],
+        )
+        result = await ConversationRunner(
+            Agent.from_function(fail), stop_on_failure=stop_on_failure,
+        ).run(case)
+        assert not result.passed
+        assert result.passed_steps == 0
+        assert result.failed_steps == 2
+        assert result.first_failure == 0
+        assert result.steps[0].score == 0.0
+        assert result.steps[0].to_dict()["error"] == "HTTP 401"
+        if stop_on_failure:
+            assert "Skipped" in result.steps[1].reason
+
+    @pytest.mark.asyncio
     async def test_all_pass(self):
         from litmusai.assertions import Contains
 

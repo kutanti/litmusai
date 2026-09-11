@@ -621,6 +621,8 @@ def _print_scan_report(report: object) -> None:
         if report.is_safe
         else "[bold red]❌ UNSAFE[/bold red]"
     )
+    if any(f.error is not None for f in report.findings):
+        status = "[bold yellow]INCONCLUSIVE (agent errors)[/bold yellow]"
     console.print(
         f"Overall: {status} (score: {report.safety_score:.0f}/100)"
     )
@@ -672,6 +674,8 @@ def _print_scan_report(report: object) -> None:
                 console.print(
                     f"     └─ {f.description[:100]}"
                 )
+            if f.error is not None:
+                console.print(f"     Agent error: {f.error}", markup=False)
 
 
 # ─── litmus report ───────────────────────────────────────────────

@@ -80,6 +80,7 @@ class StepResult:
     cost: float = 0.0
     is_cascade: bool = False
     assertion_details: list[dict[str, Any]] = field(default_factory=list)
+    error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary."""
@@ -97,6 +98,8 @@ class StepResult:
             d["is_cascade"] = True
         if self.assertion_details:
             d["assertion_details"] = self.assertion_details
+        if self.error is not None:
+            d["error"] = self.error
         return d
 
 
@@ -301,7 +304,12 @@ class ConversationRunner:
                 response = await conv.send(step.user)
 
                 # Score this step
-                if step.assertions:
+                if not response.success:
+                    score = ScoreResult(
+                        passed=False, score=0.0,
+                        reason=f"Agent error: {response.error or 'Unknown error'}",
+                    )
+                elif step.assertions:
                     from litmusai.core.suite import TestCase
 
                     temp_case = TestCase(
@@ -333,6 +341,7 @@ class ConversationRunner:
                     latency_ms=response.latency_ms,
                     cost=response.cost,
                     is_cascade=is_cascade,
+                    error=(response.error or "Unknown error") if not response.success else None,
                     assertion_details=score.details.get("assertions", [])
                     if isinstance(score.details, dict)
                     else [],
