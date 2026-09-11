@@ -200,5 +200,5 @@ class TestRealAgent:
             results.to_dict(), tmp_path / "report.html",
         )
         assert path.exists()
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "integration-report" in html

@@ -243,11 +243,11 @@ class Conversation:
         """
         self._history.append({"role": "user", "content": message})
 
-        start = time.monotonic()
+        start = time.perf_counter()
         response = await self._agent.run(
             message, history=self._history[:-1],
         )
-        elapsed = (time.monotonic() - start) * 1000
+        elapsed = (time.perf_counter() - start) * 1000
 
         response.latency_ms = elapsed
         self._history.append(

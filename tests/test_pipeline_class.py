@@ -177,7 +177,7 @@ class TestPipelineRun:
 
         assert result.report_path == report_path
         assert Path(report_path).exists()
-        content = Path(report_path).read_text()
+        content = Path(report_path).read_text(encoding="utf-8")
         assert "<html" in content
 
     @pytest.mark.asyncio
@@ -195,7 +195,7 @@ class TestPipelineRun:
 
         assert result.report_path == report_path
         assert Path(report_path).exists()
-        content = Path(report_path).read_text()
+        content = Path(report_path).read_text(encoding="utf-8")
         assert "testsuite" in content
 
     @pytest.mark.asyncio

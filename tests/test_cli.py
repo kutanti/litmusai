@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from litmusai import __version__
 from litmusai.cli.main import cli
 
 
@@ -354,4 +355,4 @@ class TestBadges:
 class TestVersion:
     def test_version(self, runner):
         result = runner.invoke(cli, ["--version"])
-        assert "0.2.0" in result.output
+        assert __version__ in result.output

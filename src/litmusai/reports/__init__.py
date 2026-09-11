@@ -520,5 +520,5 @@ def render_html(
         dimensions_section=_build_dimensions_section(data),
     )
 
-    output_path.write_text(html_out)
+    output_path.write_text(html_out, encoding="utf-8")
     return output_path
