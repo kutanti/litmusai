@@ -1,6 +1,8 @@
 """Tests for the Agent class and all adapters."""
 
 
+import sys
+
 import pytest
 
 from litmusai.core.agent import Agent, AgentResponse, AgentStep, ToolCall
@@ -223,16 +225,20 @@ class TestDataClasses:
 class TestCLIAdapter:
     @pytest.mark.asyncio
     async def test_from_cli_echo(self):
-        agent = Agent.from_cli("cat", name="echo-agent")
+        agent = Agent.from_cli(
+            f'"{sys.executable}" -c "import sys; print(sys.stdin.read())"', name="echo-agent",
+        )
         response = await agent.run("hello world")
         assert response.success
         assert "hello world" in response.output
 
     @pytest.mark.asyncio
     async def test_from_cli_failure(self):
-        agent = Agent.from_cli("false", name="fail-agent")
+        agent = Agent.from_cli(
+            f'"{sys.executable}" -c "import sys; sys.exit(1)"', name="fail-agent",
+        )
         response = await agent.run("test")
-        # 'false' command returns exit code 1
+        # The child process returns exit code 1.
         assert not response.success
         assert response.error
         assert response.output == ""
@@ -240,7 +246,7 @@ class TestCLIAdapter:
     @pytest.mark.asyncio
     async def test_from_cli_python(self):
         agent = Agent.from_cli(
-            'python3 -c "import sys; print(f\'Got: {sys.stdin.read().strip()}\')"',
+            f'"{sys.executable}" -c "import sys; print(f\'Got: {{sys.stdin.read().strip()}}\')"',
             name="python-agent",
         )
         response = await agent.run("test input")

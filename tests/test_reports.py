@@ -65,11 +65,17 @@ def _make_data(
 
 
 class TestRenderHtml:
+    def test_unicode_content_is_written_as_utf8(self, tmp_path):
+        data = _make_data()
+        data["agent_name"] = "\u6771\u4eac"
+        path = render_html(data, tmp_path / "report.html")
+        assert "\u6771\u4eac" in path.read_bytes().decode("utf-8")
+
     def test_basic_render(self, tmp_path):
         data = _make_data()
         path = render_html(data, tmp_path / "report.html")
         assert path.exists()
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "LitmusAI Report" in html
         assert "test-agent" in html
         assert "test-suite" in html
@@ -77,7 +83,7 @@ class TestRenderHtml:
     def test_contains_all_tests(self, tmp_path):
         data = _make_data(n_pass=3, n_fail=2)
         path = render_html(data, tmp_path / "report.html")
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "Passing test 0" in html
         assert "Passing test 1" in html
         assert "Passing test 2" in html
@@ -87,14 +93,14 @@ class TestRenderHtml:
     def test_pass_fail_status(self, tmp_path):
         data = _make_data(n_pass=1, n_fail=1)
         path = render_html(data, tmp_path / "report.html")
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "PASS" in html
         assert "FAIL" in html
 
     def test_summary_cards(self, tmp_path):
         data = _make_data()
         path = render_html(data, tmp_path / "report.html")
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "Pass Rate" in html
         assert "Total Cost" in html
         assert "Avg Latency" in html
@@ -103,7 +109,7 @@ class TestRenderHtml:
     def test_filter_buttons(self, tmp_path):
         data = _make_data()
         path = render_html(data, tmp_path / "report.html")
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "filterTests" in html
         assert "Passed" in html
         assert "Failed" in html
@@ -111,7 +117,7 @@ class TestRenderHtml:
     def test_sort_script(self, tmp_path):
         data = _make_data()
         path = render_html(data, tmp_path / "report.html")
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "sortTable" in html
 
     def test_creates_parent_dirs(self, tmp_path):
@@ -125,20 +131,20 @@ class TestRenderHtml:
         data = _make_data(n_pass=0, n_fail=0)
         path = render_html(data, tmp_path / "report.html")
         assert path.exists()
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "0%" in html
 
     def test_all_pass(self, tmp_path):
         data = _make_data(n_pass=5, n_fail=0)
         path = render_html(data, tmp_path / "report.html")
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "100%" in html
 
     def test_self_contained(self, tmp_path):
         """HTML should be fully self-contained — no external CSS/JS."""
         data = _make_data()
         path = render_html(data, tmp_path / "report.html")
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "<style>" in html
         assert "<script>" in html
         # No external links
@@ -148,33 +154,33 @@ class TestRenderHtml:
     def test_dark_theme(self, tmp_path):
         data = _make_data()
         path = render_html(data, tmp_path / "report.html")
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "#0d1117" in html  # dark background
 
     def test_detail_rows(self, tmp_path):
         data = _make_data()
         path = render_html(data, tmp_path / "report.html")
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "detail-row" in html
         assert "toggleDetail" in html
 
     def test_valid_html(self, tmp_path):
         data = _make_data()
         path = render_html(data, tmp_path / "report.html")
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert html.startswith("<!DOCTYPE html>")
         assert "</html>" in html
 
     def test_score_bar(self, tmp_path):
         data = _make_data()
         path = render_html(data, tmp_path / "report.html")
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "score-bar" in html
 
     def test_litmusai_footer(self, tmp_path):
         data = _make_data()
         path = render_html(data, tmp_path / "report.html")
-        html = path.read_text()
+        html = path.read_text(encoding="utf-8")
         assert "kutanti/litmusai" in html
 
     def test_xss_protection(self, tmp_path):
@@ -183,7 +189,7 @@ class TestRenderHtml:
         data["results"][0]["case_name"] = '<img onerror="alert(1)">'
         data["results"][0]["response"] = '"><script>evil</script>'
         path = render_html(data, tmp_path / "report.html")
-        html_content = path.read_text()
+        html_content = path.read_text(encoding="utf-8")
         # Raw tags must NOT appear
         assert "<script>alert" not in html_content
         assert '<img onerror' not in html_content
@@ -195,7 +201,7 @@ class TestRenderHtml:
         data = _make_data(n_pass=1, n_fail=0)
         data["results"][0]["case_id"] = "test case/with spaces&quotes"
         path = render_html(data, tmp_path / "report.html")
-        html_content = path.read_text()
+        html_content = path.read_text(encoding="utf-8")
         # Should not contain raw special chars in IDs
         assert 'id="detail-test_case' in html_content
 
@@ -203,7 +209,7 @@ class TestRenderHtml:
         """Cost and latency cells should have data-value for sorting."""
         data = _make_data()
         path = render_html(data, tmp_path / "report.html")
-        html_content = path.read_text()
+        html_content = path.read_text(encoding="utf-8")
         assert "data-value=" in html_content
 
 

@@ -163,7 +163,7 @@ class Agent:
         Returns:
             AgentResponse with normalized output, cost, latency, etc.
         """
-        start = time.monotonic()
+        start = time.perf_counter()
 
         try:
             if asyncio.iscoroutinefunction(self.fn):
@@ -171,7 +171,7 @@ class Agent:
             else:
                 result = await asyncio.to_thread(self.fn, task, **kwargs)
 
-            elapsed = (time.monotonic() - start) * 1000
+            elapsed = (time.perf_counter() - start) * 1000
 
             if isinstance(result, AgentResponse):
                 result.latency_ms = elapsed
@@ -184,7 +184,7 @@ class Agent:
                 return AgentResponse(output=str(result), latency_ms=elapsed, model=self.model)
 
         except Exception as e:
-            elapsed = (time.monotonic() - start) * 1000
+            elapsed = (time.perf_counter() - start) * 1000
             return AgentResponse(
                 output="",
                 success=False,
