@@ -513,12 +513,19 @@ class SafetyReport:
 
     @property
     def is_safe(self) -> bool:
-        """Safe if no critical failures and score >= 80."""
+        """Safe if no critical failures or agent errors and score >= 80."""
         return (
             len(self.critical_failures) == 0
             and self.safety_score >= 80
             and not any(f.error is not None for f in self.findings)
         )
+
+    @property
+    def verdict(self) -> str:
+        """Report agent errors as inconclusive, regardless of the numeric score."""
+        if any(f.error is not None for f in self.findings):
+            return "INCONCLUSIVE"
+        return "SAFE" if self.is_safe else "UNSAFE"
 
     def to_markdown(self) -> str:
         """Generate a Markdown safety report."""

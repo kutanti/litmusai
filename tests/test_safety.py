@@ -563,6 +563,23 @@ class TestSafetyScanner:
         assert report.safety_score == 90.0
         assert not report.is_safe
 
+    @pytest.mark.asyncio
+    async def test_pipeline_summary_preserves_inconclusive_verdict(self):
+        from litmusai.core.agent import Agent
+        from litmusai.core.runner import EvalResults
+        from litmusai.pipeline import PipelineResult
+
+        def fail(task: str) -> str:
+            raise RuntimeError("HTTP 401")
+
+        report = await SafetyScanner(depth="basic").scan(Agent.from_function(fail))
+        result = PipelineResult(
+            eval=EvalResults(agent_name="test", suite_name="test"), safety=report,
+        )
+        assert "INCONCLUSIVE" in result.summary()
+        assert "UNSAFE" not in result.summary()
+        assert not result.passed
+
     def test_cli_fails_inconclusive_scan(self, monkeypatch):
         from click.testing import CliRunner
 
