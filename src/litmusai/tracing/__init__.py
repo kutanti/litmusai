@@ -99,7 +99,7 @@ class Tracer:
         Yields:
             A :class:`Span` to attach attributes to.
         """
-        s = Span(name=name, start_time=time.monotonic())
+        s = Span(name=name, start_time=time.perf_counter())
 
         if self._stack:
             self._stack[-1].children.append(s)
@@ -113,7 +113,7 @@ class Tracer:
             s.set_error(str(e))
             raise
         finally:
-            s.end_time = time.monotonic()
+            s.end_time = time.perf_counter()
             self._stack.pop()
 
     @property

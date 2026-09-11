@@ -413,7 +413,7 @@ class TestHtmlReportDimensions:
         }
 
         path = render_html(data, tmp_path / "report.html")
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
         assert "Quality Dimensions" in content
         assert "Correctness" in content
         assert "radar" not in content.lower() or "polygon" in content.lower()
@@ -443,7 +443,7 @@ class TestHtmlReportDimensions:
         }
 
         path = render_html(data, tmp_path / "report.html")
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
         assert "Quality Dimensions" not in content
 
 

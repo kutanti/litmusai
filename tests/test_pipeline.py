@@ -450,20 +450,18 @@ class TestAsyncScoring:
         assert results.total_input_tokens == 100
 
     @pytest.mark.asyncio
-    async def test_yaml_excludes_assertions(self):
+    async def test_yaml_excludes_assertions(self, tmp_path):
         """to_yaml skips non-serializable assertions field."""
-        import tempfile
-
         suite = TestSuite(name="yaml-test")
         suite.add_case(TestCase(
             id="t1", name="test", task="test",
             assertions=[Numeric(36)],
         ))
 
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w") as f:
-            suite.to_yaml(f.name)
-            loaded = TestSuite.from_yaml(f.name)
-            assert len(loaded.cases) == 1
-            assert loaded.cases[0].task == "test"
-            # assertions not in YAML, so empty on reload
-            assert loaded.cases[0].assertions == []
+        path = tmp_path / "suite.yaml"
+        suite.to_yaml(path)
+        loaded = TestSuite.from_yaml(path)
+        assert len(loaded.cases) == 1
+        assert loaded.cases[0].task == "test"
+        # Assertions are not in the serialized YAML.
+        assert loaded.cases[0].assertions == []
