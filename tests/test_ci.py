@@ -192,7 +192,7 @@ class TestFormatReport:
 
     def test_markdown_format(self):
         md = format_report(self._make_data(), fmt="markdown")
-        assert "## 🧪 LitmusAI Report" in md
+        assert "## LitmusAI Report" in md
         assert "test-agent" in md
         assert "PASSED" in md
         assert "80%" in md

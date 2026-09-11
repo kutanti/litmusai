@@ -1,6 +1,6 @@
 # Agent Adapters
 
-LitmusAI provides universal adapters to evaluate agents from **any** framework using a single, consistent API.
+Adapters normalize supported agent responses to `AgentResponse`. Check which metadata and conversation features your adapter supports.
 
 ## Quick Reference
 
@@ -133,18 +133,7 @@ agent = Agent.from_crewai(crew, name="my-crew")
 
 ### 6. OpenAI Agents SDK (`from_openai_agent`)
 
-```python
-from openai.agents import Agent as OAIAgent
-from litmusai import Agent
-
-oai = OAIAgent(name="helper", model="gpt-4o", tools=[...])
-agent = Agent.from_openai_agent(oai, name="openai-agent")
-
-# Automatically extracts:
-# - Final output
-# - Tool calls
-# - Token usage
-```
+This adapter needs compatibility work before use with the current SDK. It assumes imports and response fields that may not exist in your installed version. Use `from_function` to wrap a runner you have tested with your SDK, and return `AgentResponse` with the output and usage fields you need.
 
 ### 7. Custom Object (`from_callable`)
 
@@ -160,7 +149,7 @@ agent = Agent.from_callable(MyAgent(), method="predict", name="custom")
 
 ## Building Custom Adapters
 
-If your framework isn't listed, you can easily create a custom adapter:
+For another framework, wrap its result in `AgentResponse`:
 
 ```python
 from litmusai import Agent, AgentResponse, ToolCall, AgentStep

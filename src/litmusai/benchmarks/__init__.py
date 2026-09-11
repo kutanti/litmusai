@@ -605,22 +605,22 @@ def compare_models(*trackers: CostTracker) -> ComparisonResult:
 
     parts = []
     best_name = best.model or best.agent_name
-    parts.append(f"🏆 Best efficiency: **{best_name}** "
+    parts.append(f"Best efficiency: **{best_name}** "
                  f"(efficiency={best.efficiency_score:.2f})")
 
     if cheapest is not best:
         cheapest_name = cheapest.model or cheapest.agent_name
-        parts.append(f"💰 Cheapest: **{cheapest_name}** "
+        parts.append(f"Cheapest: **{cheapest_name}** "
                      f"(${cheapest.avg_cost_per_task:.4f}/task)")
 
     if most_accurate is not best:
         acc_name = most_accurate.model or most_accurate.agent_name
-        parts.append(f"🎯 Most accurate: **{acc_name}** "
+        parts.append(f"Most accurate: **{acc_name}** "
                      f"({most_accurate.pass_rate:.1%} pass rate)")
 
     if fastest is not best:
         fast_name = fastest.model or fastest.agent_name
-        parts.append(f"⚡ Fastest: **{fast_name}** "
+        parts.append(f"Fastest: **{fast_name}** "
                      f"({fastest.p50_latency_ms:.0f}ms p50)")
 
     result.recommendation = " | ".join(parts)

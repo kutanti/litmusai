@@ -19,7 +19,7 @@ console = Console()
 @click.group()
 @click.version_option(version="0.2.0", prog_name="litmusai")
 def cli() -> None:
-    """🧪 LitmusAI — The open-source evaluation framework for AI agents."""
+    """Test suites, assertions, and reports for AI agent evaluation."""
 
 
 @cli.command()
@@ -57,10 +57,10 @@ def init() -> None:
     )
 
     console.print(
-        "🧪 [bold green]LitmusAI project initialized![/bold green]"
+        "[bold green]LitmusAI project initialized.[/bold green]"
     )
-    console.print("  📁 .litmus/config.yaml — configuration")
-    console.print("  📁 suites/example.yaml — example test suite")
+    console.print("  .litmus/config.yaml — configuration")
+    console.print("  suites/example.yaml — example test suite")
     console.print("\nNext steps:")
     console.print("  1. Define your agent in a Python file")
     console.print(
@@ -188,7 +188,7 @@ def run(
         if model_params:
             parts = [f"{k}={v}" for k, v in model_params.items()]
             click.echo(
-                f"ℹ️  Profile '{profile}' recommends: "
+                f" Profile '{profile}' recommends: "
                 f"{', '.join(parts)}. "
                 f"Pass these to Agent.from_openai_chat() for "
                 f"reproducible results.",
@@ -248,7 +248,7 @@ def run(
 def create_test(task: str, suite: str) -> None:
     """Create a new test case."""
     console.print(
-        f"✅ Test added to suite [bold]{suite}[/bold]: {task}"
+        f"Test added to suite [bold]{suite}[/bold]: {task}"
     )
 
 
@@ -261,7 +261,7 @@ def suites() -> None:
     if available:
         console.print("[bold]Available test suites:[/bold]")
         for s in available:
-            console.print(f"  📋 {s}")
+            console.print(f"  {s}")
     else:
         console.print(
             "No test suites found. "
@@ -340,7 +340,7 @@ def history(log_dir: str, limit: int) -> None:
         return
 
     table = Table(
-        title=f"📊 Evaluation History ({len(entries)} runs)",
+        title=f"Evaluation History ({len(entries)} runs)",
     )
     table.add_column("#", style="dim", width=4)
     table.add_column("Agent", style="bold")
@@ -439,18 +439,18 @@ def diff(
 
     if n_reg:
         console.print(
-            f"\n[bold red]🔴 {n_reg} regression(s) found[/bold red]"
+            f"\n[bold red]{n_reg} regression(s) found[/bold red]"
         )
     if n_imp:
         console.print(
-            f"[bold green]🟢 {n_imp} improvement(s)[/bold green]"
+            f"[bold green]{n_imp} improvement(s)[/bold green]"
         )
     if n_new:
-        console.print(f"[bold blue]🆕 {n_new} new test(s)[/bold blue]")
+        console.print(f"[bold blue]{n_new} new test(s)[/bold blue]")
 
     if not n_reg and not n_imp and not n_new:
         console.print(
-            "\n[green]✅ No changes detected[/green]"
+            "\n[green]No changes detected[/green]"
         )
 
     if fail_on_regression and result.has_regressions:
@@ -465,7 +465,7 @@ def _print_diff_table(result: object) -> None:
         return
 
     change = result.pass_rate_change
-    arrow = "📈" if change > 0 else "📉" if change < 0 else "➡️"
+    arrow = "increase" if change > 0 else "decrease" if change < 0 else "unchanged"
 
     console.print(
         f"\n[bold]Baseline:[/bold] {result.baseline_name} "
@@ -585,7 +585,7 @@ def scan(
                 sys.exit(1)
 
     console.print(
-        f"🔍 [bold]Scanning agent[/bold] "
+        f"[bold]Scanning agent[/bold] "
         f"(level={level}"
         f"{f', categories={categories}' if categories else ''})"
     )
@@ -602,7 +602,7 @@ def scan(
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(report.to_dict(), indent=2))
-        console.print(f"\n💾 Results saved to {output}")
+        console.print(f"\nResults saved to {output}")
 
     if fail_on_unsafe and not report.is_safe:
         sys.exit(1)
@@ -617,9 +617,9 @@ def _print_scan_report(report: object) -> None:
 
     # Overall status
     status = (
-        "[bold green]✅ SAFE[/bold green]"
+        "[bold green]SAFE[/bold green]"
         if report.is_safe
-        else "[bold red]❌ UNSAFE[/bold red]"
+        else "[bold red]UNSAFE[/bold red]"
     )
     console.print(
         f"Overall: {status} (score: {report.safety_score:.0f}/100)"
@@ -665,7 +665,7 @@ def _print_scan_report(report: object) -> None:
         for f in failures:
             sev = f.severity.value if f.severity else "?"
             console.print(
-                f"  🔴 [{sev}] {f.category.value}: "
+                f"  [{sev}] {f.category.value}: "
                 f"{f.attack_id}"
             )
             if f.description:
@@ -735,7 +735,7 @@ def report(
             )
         path = render_html(data, html)
         console.print(
-            f"📊 [bold green]HTML report saved to {path}[/bold green]"
+            f"[bold green]HTML report saved to {path}[/bold green]"
         )
 
     # JUnit XML
@@ -744,7 +744,7 @@ def report(
 
         path = to_junit_xml(data, junit)
         console.print(
-            f"📋 [bold green]JUnit XML saved to {path}[/bold green]"
+            f"[bold green]JUnit XML saved to {path}[/bold green]"
         )
 
     # CSV
@@ -753,7 +753,7 @@ def report(
 
         path = to_csv(data, csv_path)
         console.print(
-            f"📄 [bold green]CSV saved to {path}[/bold green]"
+            f"[bold green]CSV saved to {path}[/bold green]"
         )
 
     # If only export flags were given (no markdown needed), return
@@ -811,7 +811,7 @@ def badges() -> None:
         f"LitmusAI-{pct_encoded}%20pass-{color}"
     )
 
-    table = Table(title="📛 README Badges")
+    table = Table(title="README Badges")
     table.add_column("Badge", style="bold")
     table.add_column("Markdown")
     table.add_row(
@@ -825,7 +825,7 @@ def badges() -> None:
 @cli.command()
 def dashboard() -> None:
     """Launch the results dashboard."""
-    console.print("🌐 Dashboard coming soon!")
+    console.print("Dashboard coming soon!")
 
 
 @cli.command(name="validate-ground-truth")
@@ -843,10 +843,10 @@ def validate_ground_truth_cmd(path: str) -> None:
     if errors:
         console.print(f"[red]Found {len(errors)} error(s):[/red]")
         for err in errors:
-            console.print(f"  ❌ {err}")
+            console.print(f"  {err}")
         sys.exit(1)
     else:
-        console.print(f"[green]✅ {path} is valid[/green]")
+        console.print(f"[green]{path} is valid[/green]")
 
 
 @cli.command(name="ground-truth-stats")
@@ -879,7 +879,7 @@ def ground_truth_stats_cmd(suite: str, ground_truth: str) -> None:
     gt = load_ground_truth(ground_truth)
     stats = ground_truth_stats(s, gt)
 
-    console.print(f"\n📋 Ground Truth Coverage — {s.name}")
+    console.print(f"\nGround Truth Coverage — {s.name}")
     console.print(f"  Total cases: {stats['total']}")
     console.print(
         f"  Covered: {stats['covered']}/{stats['total']} "

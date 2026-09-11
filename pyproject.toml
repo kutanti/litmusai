@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "litmuseval"
 version = "0.3.0"
-description = "The open-source evaluation framework for AI agents — test, compare, ship with confidence"
+description = "Test suites, assertions, and reports for AI agent evaluation"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -64,7 +64,7 @@ litmus = "litmusai.cli.main:cli"
 
 [project.urls]
 Homepage = "https://github.com/kutanti/litmusai"
-Documentation = "https://github.com/kutanti/litmusai#-quickstart"
+Documentation = "https://github.com/kutanti/litmusai#quick-start"
 Repository = "https://github.com/kutanti/litmusai"
 Issues = "https://github.com/kutanti/litmusai/issues"
 Changelog = "https://github.com/kutanti/litmusai/releases"

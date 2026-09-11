@@ -4,11 +4,8 @@ Tests whether agents can be manipulated through conversational memory
 poisoning. Injects seemingly innocuous data in early turns that becomes
 malicious when retrieved or acted upon in later turns.
 
-Based on DeepMind's "AI Agent Traps" paper (Franklin et al., 2026):
-- Trap 3.2: Latent Memory Poisoning (>80% attack success, <0.1% data)
-- Trap 4.2: Data Exfiltration via memory recall
-
-Reference: Chen et al. (2024), Dong et al. (2025), Wang et al. (2025)
+The bundled cases cover instruction injection, false facts, identity changes,
+exfiltration requests, authority claims, and delayed triggers.
 """
 
 from __future__ import annotations

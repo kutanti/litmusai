@@ -137,14 +137,14 @@ class EvalResults:
 
     def summary(self) -> str:
         parts = [
-            f"✅ {self.passed}/{len(self.results)} passed",
-            f"❌ {self.failed} failed",
-            f"💰 ${self.total_cost:.4f}",
-            f"⚡ {self.avg_latency_ms:.0f}ms avg",
+            f"{self.passed}/{len(self.results)} passed",
+            f"{self.failed} failed",
+            f"${self.total_cost:.4f}",
+            f"{self.avg_latency_ms:.0f}ms avg",
         ]
         if self.total_input_tokens > 0:
             total_tok = self.total_input_tokens + self.total_output_tokens
-            parts.append(f"🔤 {total_tok} tokens")
+            parts.append(f"{total_tok} tokens")
         return " | ".join(parts)
 
     def to_dict(self) -> dict[str, Any]:
@@ -297,12 +297,12 @@ class MultiRunResults:
 
     def summary(self) -> str:
         parts = [
-            f"📊 {self.n_runs} runs",
+            f"{self.n_runs} runs",
             f"Pass rate: {self.mean_pass_rate:.0%} ±{self.std_pass_rate:.1%}",
-            f"💰 ${self.total_cost:.4f} total",
+            f"${self.total_cost:.4f} total",
         ]
         if self.flaky_tests:
-            parts.append(f"⚠️ {len(self.flaky_tests)} flaky")
+            parts.append(f"{len(self.flaky_tests)} flaky")
         return " | ".join(parts)
 
     def to_table(self) -> str:
@@ -577,7 +577,7 @@ async def evaluate(
         filename = f"{safe_agent}_{safe_suite}_{safe_time}.json"
         saved = results.save(log_path / filename)
         if verbose:
-            console.print(f"📝 Results saved to {saved}")
+            console.print(f"Results saved to {saved}")
 
     return results
 
@@ -603,7 +603,7 @@ async def compare(
         )
 
     if verbose:
-        console.print("\n[bold]📊 Comparison Results:[/bold]")
+        console.print("\n[bold]Comparison Results:[/bold]")
         from rich.table import Table
 
         table = Table()

@@ -1,4 +1,4 @@
-"""LitmusAI — The open-source evaluation framework for AI agents."""
+"""Test suites, assertions, and reports for AI agent evaluation."""
 
 __version__ = "0.3.0"
 

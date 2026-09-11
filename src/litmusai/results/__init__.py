@@ -108,16 +108,16 @@ class CaseDiff:
     @property
     def status_icon(self) -> str:
         if self.is_regression:
-            return "🔴"
+            return "REGRESSION"
         if self.is_improvement:
-            return "🟢"
+            return "IMPROVEMENT"
         if self.is_new:
-            return "🆕"
+            return "NEW"
         if self.is_removed:
-            return "⚪"
+            return "REMOVED"
         if self.current_passed:
-            return "✅"
-        return "❌"
+            return "PASS"
+        return "FAIL"
 
 
 @dataclass
@@ -183,7 +183,7 @@ class DiffSummary:
     def to_markdown(self) -> str:
         """Format as markdown report."""
         lines: list[str] = []
-        lines.append("## 📊 Evaluation Diff")
+        lines.append("## Evaluation Diff")
         lines.append("")
         lines.append(
             f"**Baseline:** {self.baseline_name} "
@@ -199,7 +199,7 @@ class DiffSummary:
         b_rate = f"{self.baseline_pass_rate:.0%}"
         c_rate = f"{self.current_pass_rate:.0%}"
         change = self.pass_rate_change
-        arrow = "📈" if change > 0 else "📉" if change < 0 else "➡️"
+        arrow = "increase" if change > 0 else "decrease" if change < 0 else "unchanged"
         lines.append(
             f"**Pass Rate:** {b_rate} → {c_rate} "
             f"{arrow} ({change:+.1%})"
@@ -209,7 +209,7 @@ class DiffSummary:
         # Regressions
         if self.regressions:
             lines.append(
-                f"### 🔴 Regressions ({len(self.regressions)})"
+                f"### Regressions ({len(self.regressions)})"
             )
             lines.append("")
             for c in self.regressions:
@@ -225,7 +225,7 @@ class DiffSummary:
         # Improvements
         if self.improvements:
             lines.append(
-                f"### 🟢 Improvements ({len(self.improvements)})"
+                f"### Improvements ({len(self.improvements)})"
             )
             lines.append("")
             for c in self.improvements:
@@ -236,10 +236,10 @@ class DiffSummary:
 
         # New tests
         if self.new_tests:
-            lines.append(f"### 🆕 New Tests ({len(self.new_tests)})")
+            lines.append(f"### New Tests ({len(self.new_tests)})")
             lines.append("")
             for c in self.new_tests:
-                status = "✅" if c.current_passed else "❌"
+                status = "PASS" if c.current_passed else "FAIL"
                 lines.append(f"- {status} **{c.case_name}**")
             lines.append("")
 
@@ -257,13 +257,13 @@ class DiffSummary:
 
         for c in self.cases:
             b_status = (
-                "✅" if c.baseline_passed
-                else "❌" if c.baseline_passed is not None
+                "PASS" if c.baseline_passed
+                else "FAIL" if c.baseline_passed is not None
                 else "—"
             )
             c_status = (
-                "✅" if c.current_passed
-                else "❌" if c.current_passed is not None
+                "PASS" if c.current_passed
+                else "FAIL" if c.current_passed is not None
                 else "—"
             )
             score_d = (

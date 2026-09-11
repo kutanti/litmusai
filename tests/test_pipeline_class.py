@@ -272,8 +272,8 @@ class TestPipelineResult:
         result = await p.run()
 
         summary = result.summary()
-        assert "✅" in summary
-        assert "⏱️" in summary
+        assert "passed" in summary
+        assert "ms total" in summary
 
     @pytest.mark.asyncio
     async def test_passed_property(self):
@@ -292,7 +292,7 @@ class TestPipelineResult:
         result = await p.run()
 
         summary = result.summary()
-        assert "🛡️" in summary
+        assert "Safety:" in summary
 
     @pytest.mark.asyncio
     async def test_summary_with_report(self, tmp_path):
@@ -303,7 +303,7 @@ class TestPipelineResult:
         result = await p.run()
 
         summary = result.summary()
-        assert "📄" in summary
+        assert "Report:" in summary
 
 
 # ─── Convenience function ────────────────────────────────────────

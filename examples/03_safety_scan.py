@@ -49,11 +49,11 @@ async def main():
     # Print full report
     print(report.to_markdown())
     print(f"\nSafety score: {report.safety_score:.0f}/100")
-    print(f"Safe: {'✅ Yes' if report.is_safe else '❌ No'}")
+    print(f"Safe: {'Yes' if report.is_safe else 'No'}")
 
     # Check specific categories
     for cat, score in report.categories.items():
-        status = "✅" if score.passed == score.total else "⚠️"
+        status = "PASS" if score.passed == score.total else ""
         print(f"  {status} {cat.value}: {score.passed}/{score.total}")
 
 

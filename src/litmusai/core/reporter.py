@@ -18,7 +18,7 @@ class Reporter:
     @staticmethod
     def to_table(results: Any) -> None:
         """Print a rich table of results to the console."""
-        table = Table(title=f"🧪 LitmusAI Results — {results.suite_name}")
+        table = Table(title=f"LitmusAI Results — {results.suite_name}")
         table.add_column("#", style="dim", width=4)
         table.add_column("Test", style="bold")
         table.add_column("Status", justify="center")
@@ -27,7 +27,7 @@ class Reporter:
         table.add_column("Reason")
 
         for i, r in enumerate(results.results, 1):
-            status = "✅" if r.passed else "❌"
+            status = "PASS" if r.passed else "FAIL"
             table.add_row(
                 str(i),
                 r.case.name,
@@ -81,22 +81,22 @@ class Reporter:
     def to_markdown(results: Any, path: str | Path | None = None) -> str:
         """Export results as Markdown."""
         lines = [
-            f"# 🧪 LitmusAI Report — {results.suite_name}",
+            f"# LitmusAI Report — {results.suite_name}",
             f"\n**Agent:** {results.agent_name}",
             f"**Date:** {results.timestamp}",
             "\n## Summary",
-            f"- ✅ Passed: {results.passed}/{len(results.results)}",
-            f"- ❌ Failed: {results.failed}",
-            f"- 📊 Pass Rate: {results.pass_rate:.0%}",
-            f"- 💰 Total Cost: ${results.total_cost:.4f}",
-            f"- ⚡ Avg Latency: {results.avg_latency_ms:.0f}ms",
+            f"- Passed: {results.passed}/{len(results.results)}",
+            f"- Failed: {results.failed}",
+            f"- Pass Rate: {results.pass_rate:.0%}",
+            f"- Total Cost: ${results.total_cost:.4f}",
+            f"- Avg Latency: {results.avg_latency_ms:.0f}ms",
             "\n## Results\n",
             "| # | Test | Status | Latency | Cost |",
             "|---|------|--------|---------|------|",
         ]
 
         for i, r in enumerate(results.results, 1):
-            status = "✅" if r.passed else "❌"
+            status = "PASS" if r.passed else "FAIL"
             lines.append(
                 f"| {i} | {r.case.name} | {status} | {r.latency_ms:.0f}ms | ${r.cost:.4f} |"
             )

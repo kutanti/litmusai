@@ -213,7 +213,7 @@ def _delta_str(val: float, fmt: str = ".1%", invert: bool = False) -> str:
         return "→ (no change)"
     # For cost/latency, positive = bad; for pass rate, positive = good
     is_good = val > 0 if not invert else val < 0
-    arrow = "🟢 ↑" if is_good else "🔴 ↓"
+    arrow = "↑" if is_good else "↓"
     return f"{arrow} {abs(val):{fmt}}"
 
 
@@ -246,7 +246,7 @@ def format_report(
     timestamp = data.get("timestamp", "")
 
     lines: list[str] = []
-    lines.append(f"## 🧪 LitmusAI Report — {suite_name}")
+    lines.append(f"## LitmusAI Report — {suite_name}")
     lines.append(f"**Agent:** {agent} | **Date:** {timestamp}")
     lines.append("")
 
@@ -258,7 +258,7 @@ def format_report(
     cost = summary.get("total_cost", 0)
     latency = summary.get("avg_latency_ms", 0)
 
-    verdict = "✅ PASSED" if pass_rate >= threshold else "❌ FAILED"
+    verdict = "PASSED" if pass_rate >= threshold else "FAILED"
     lines.append(f"### {verdict}")
     lines.append("")
     lines.append("| Metric | Value |")
@@ -272,7 +272,7 @@ def format_report(
     if baseline:
         comparison = compare_with_baseline(data, baseline)
         lines.append("")
-        lines.append("### 📊 vs Baseline")
+        lines.append("### vs Baseline")
         lines.append("")
         lines.append("| Metric | Current | Baseline | Delta |")
         lines.append("|--------|---------|----------|-------|")
@@ -297,7 +297,7 @@ def format_report(
 
         if comparison["regressions"]:
             lines.append("")
-            lines.append("### ⚠️ Regressions Detected")
+            lines.append("### Regressions Detected")
             for r in comparison["regressions"]:
                 lines.append(f"- {r}")
 
@@ -306,12 +306,12 @@ def format_report(
     if results_list:
         lines.append("")
         lines.append("<details>")
-        lines.append("<summary>📋 Detailed Results</summary>")
+        lines.append("<summary>Detailed Results</summary>")
         lines.append("")
         lines.append("| # | Test | Status | Latency | Cost |")
         lines.append("|---|------|--------|---------|------|")
         for i, r in enumerate(results_list, 1):
-            status = "✅" if r.get("passed") else "❌"
+            status = "PASS" if r.get("passed") else "FAIL"
             lines.append(
                 f"| {i} | {r.get('test', '')} | {status} "
                 f"| {r.get('latency_ms', 0):.0f}ms "
@@ -330,7 +330,7 @@ def format_table(
     """Print results as a rich table to console."""
     summary = data.get("summary", {})
 
-    table = Table(title=f"🧪 LitmusAI — {data.get('suite', 'Results')}")
+    table = Table(title=f"LitmusAI — {data.get('suite', 'Results')}")
     table.add_column("#", style="dim", width=4)
     table.add_column("Test", style="bold")
     table.add_column("Status", justify="center")
@@ -345,7 +345,7 @@ def format_table(
     table.add_column("Cost", justify="right")
 
     for i, r in enumerate(data.get("results", []), 1):
-        status = "✅" if r.get("passed") else "❌"
+        status = "PASS" if r.get("passed") else "FAIL"
         row = [
             str(i),
             r.get("test", ""),
@@ -371,10 +371,10 @@ def format_table(
 
     pass_rate = summary.get("pass_rate", 0)
     summary_line = (
-        f"\n✅ {summary.get('passed', 0)}/{summary.get('total', 0)} passed "
-        f"| ❌ {summary.get('failed', 0)} failed "
-        f"| 💰 ${summary.get('total_cost', 0):.4f} "
-        f"| ⚡ {summary.get('avg_latency_ms', 0):.0f}ms avg"
+        f"\n{summary.get('passed', 0)}/{summary.get('total', 0)} passed "
+        f"| {summary.get('failed', 0)} failed "
+        f"| ${summary.get('total_cost', 0):.4f} "
+        f"| {summary.get('avg_latency_ms', 0):.0f}ms avg"
         f"| Pass rate: {pass_rate:.0%}"
     )
     console.print(summary_line)
@@ -383,7 +383,7 @@ def format_table(
     if show_dimensions and "dimensions" in data:
         dims = data["dimensions"]
         dim_line = (
-            f"📐 Dimensions: "
+            f"Dimensions: "
             f"correctness={dims.get('correctness', 0):.2f} "
             f"completeness={dims.get('completeness', 0):.2f} "
             f"format={dims.get('format', 0):.2f} "
@@ -443,7 +443,7 @@ async def run_evaluation(
 
     # Run evaluation
     console.print(
-        f"🧪 Running [bold]{test_suite.name}[/bold] "
+        f"Running [bold]{test_suite.name}[/bold] "
         f"with [bold]{agent.name}[/bold]"
         f"{f' ({runs} runs)' if runs > 1 else ''}..."
     )
@@ -466,12 +466,12 @@ async def run_evaluation(
             console.print(f"\n{multi.to_table()}\n")
             if multi.flaky_tests:
                 console.print(
-                    f"[yellow]⚠️ {len(multi.flaky_tests)} "
+                    f"[yellow]{len(multi.flaky_tests)} "
                     f"flaky test(s) detected[/yellow]"
                 )
                 for ft in multi.flaky_tests:
                     console.print(
-                        f"  ⚠️ {ft.case_name} "
+                        f"  {ft.case_name} "
                         f"({ft.n_passed}/{ft.n_runs} passed)"
                     )
     else:
@@ -498,7 +498,7 @@ async def run_evaluation(
     # Check threshold
     if threshold is not None and results.pass_rate < threshold:
         console.print(
-            f"[red]❌ Pass rate {results.pass_rate:.0%} "
+            f"[red]Pass rate {results.pass_rate:.0%} "
             f"below threshold {threshold:.0%}[/red]"
         )
         success = False
@@ -506,7 +506,7 @@ async def run_evaluation(
     # Check budget
     if budget is not None and results.total_cost > budget:
         console.print(
-            f"[red]❌ Total cost ${results.total_cost:.4f} "
+            f"[red]Total cost ${results.total_cost:.4f} "
             f"exceeds budget ${budget:.4f}[/red]"
         )
         success = False
@@ -517,7 +517,7 @@ async def run_evaluation(
         comparison = compare_with_baseline(data, baseline)
         has_regression = comparison["has_regression"]
         if has_regression:
-            console.print("[red]⚠️ Regressions detected:[/red]")
+            console.print("[red]Regressions detected:[/red]")
             for r in comparison["regressions"]:
                 console.print(f"  [red]• {r}[/red]")
             success = False
@@ -549,11 +549,11 @@ async def run_evaluation(
                 format_report(data, baseline, fmt="markdown",
                               threshold=effective_threshold)
             )
-        console.print(f"📄 Results saved to {output_path}")
+        console.print(f"Results saved to {output_path}")
 
     # Save baseline
     if do_save_baseline:
         bp = save_baseline(data)
-        console.print(f"📊 Baseline saved to {bp}")
+        console.print(f"Baseline saved to {bp}")
 
     return {"success": success, "data": data, "has_regression": has_regression}

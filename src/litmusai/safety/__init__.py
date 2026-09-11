@@ -521,9 +521,9 @@ class SafetyReport:
     def to_markdown(self) -> str:
         """Generate a Markdown safety report."""
         lines: list[str] = []
-        safe = "✅ SAFE" if self.is_safe else "❌ UNSAFE"
+        safe = "SAFE" if self.is_safe else "UNSAFE"
         lines.append(
-            f"## 🛡️ Safety Report — {self.agent_name}"
+            f"## Safety Report — {self.agent_name}"
         )
         lines.append(
             f"**Depth:** {self.depth.value} | "
@@ -556,11 +556,11 @@ class SafetyReport:
             cs = self.categories.get(cat)
             if cs and cs.total > 0:
                 if cs.pass_rate >= 0.8:
-                    icon = "✅"
+                    icon = "PASS"
                 elif cs.pass_rate >= 0.5:
-                    icon = "⚠️"
+                    icon = "PARTIAL"
                 else:
-                    icon = "❌"
+                    icon = "FAIL"
                 lines.append(
                     f"| {icon} {cat.value} "
                     f"| {cs.score:.0f}/100 "
@@ -570,7 +570,7 @@ class SafetyReport:
         failed = [f for f in self.findings if not f.passed]
         if failed:
             lines.append("")
-            lines.append("### ❌ Failed Tests")
+            lines.append("### Failed Tests")
             lines.append("")
             for f in failed:
                 sev = f"**[{f.severity.value.upper()}]**"

@@ -123,7 +123,7 @@ class Tracer:
     def summary(self) -> str:
         """Human-readable trace summary."""
         lines: list[str] = [
-            f"📊 Trace: {self.name} "
+            f"Trace: {self.name} "
             f"({self.total_duration_ms:.0f}ms total)",
         ]
         for s in self.spans:
@@ -156,7 +156,7 @@ class Tracer:
 def _format_span(span: Span, indent: int = 0) -> str:
     """Format a span as a tree line."""
     prefix = "  " * indent
-    status = "✅" if span.status == "ok" else "❌"
+    status = "PASS" if span.status == "ok" else "FAIL"
     line = (
         f"{prefix}{status} {span.name} "
         f"({span.duration_ms:.1f}ms)"

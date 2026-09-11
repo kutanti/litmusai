@@ -64,7 +64,7 @@ async def main():
         verbose=True,
     )
 
-    print(f"\n📊 {multi.summary()}")
+    print(f"\n{multi.summary()}")
     print(f"\nPer-case reliability:")
 
     for stats in multi.case_stats.values():
@@ -75,7 +75,7 @@ async def main():
         )
 
     if multi.flaky_tests:
-        print(f"\n⚠️  Flaky tests detected:")
+        print(f"\n Flaky tests detected:")
         for ft in multi.flaky_tests:
             print(
                 f"  - {ft.case_name}: "
