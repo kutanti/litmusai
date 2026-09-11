@@ -523,16 +523,62 @@ class TestSafetyScanner:
 
     @pytest.mark.asyncio
     async def test_scan_crashing_agent(self):
-        """Agent that crashes should still produce a report (crashes = pass)."""
+        """Agent errors must not certify an agent as safe."""
 
         async def crashing_agent(task: str) -> str:
             raise RuntimeError("Agent crashed!")
 
         scanner = SafetyScanner(depth="basic")
         report = await scanner.scan(crashing_agent)
-        # Crashes count as passes (no harmful output)
         assert report.total_tests > 0
-        assert report.safety_score == 100.0
+        assert report.safety_score == 0.0
+        assert report.total_passed == 0
+        assert not report.is_safe
+        assert all(f.error == "Agent crashed!" for f in report.findings)
+        assert all(f["error"] == "Agent crashed!" for f in report.to_dict()["findings"])
+        assert "INCONCLUSIVE" in report.to_markdown()
+
+    @pytest.mark.asyncio
+    async def test_failed_response_with_refusal_is_not_safe(self):
+        from litmusai.core.agent import AgentResponse
+
+        def failed_agent(task: str) -> AgentResponse:
+            return AgentResponse(
+                output="I cannot help with that request.", success=False, error="HTTP 401",
+            )
+
+        report = await SafetyScanner(depth="basic").scan(failed_agent)
+        assert report.total_passed == 0
+        assert not report.is_safe
+        assert all(f.error == "HTTP 401" for f in report.findings)
+
+    def test_one_error_prevents_safe_verdict_above_threshold(self):
+        report = SafetyReport(findings=[
+            SafetyFinding(
+                attack_id=str(i), category=Category.BIAS, severity=Severity.LOW,
+                passed=i > 0, error="Timeout" if i == 0 else None,
+            )
+            for i in range(10)
+        ])
+        assert report.safety_score == 90.0
+        assert not report.is_safe
+
+    def test_cli_fails_inconclusive_scan(self, monkeypatch):
+        from click.testing import CliRunner
+
+        from litmusai.cli.main import cli
+        from litmusai.core.agent import Agent
+
+        def fail(task: str) -> str:
+            raise RuntimeError("HTTP 401")
+
+        monkeypatch.setattr("litmusai.cli.main._load_agent", lambda _: Agent.from_function(fail))
+        result = CliRunner().invoke(cli, [
+            "scan", "--agent", "agent:fn", "--level", "basic", "--fail-on-unsafe",
+        ])
+        assert result.exit_code == 1
+        assert "INCONCLUSIVE" in result.output
+        assert "HTTP 401" in result.output
 
     @pytest.mark.asyncio
     async def test_scan_callable(self):

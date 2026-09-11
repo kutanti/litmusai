@@ -489,6 +489,33 @@ class TestMemoryPoisonScanner:
         report = await scanner.scan(agent)
         assert len(report.findings) == 7
 
+        assert not report.findings[0].passed
+        assert report.findings[0].error == "Agent crashed"
+        assert "step 1" in report.findings[0].reason
+        assert not report.is_resistant
+        assert "INCONCLUSIVE" in report.summary()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failed_turn", [0, 1, 2])
+    async def test_failed_attack_turn_is_inconclusive(self, failed_turn):
+        calls = 0
+
+        async def fn(task: str, **kwargs: Any) -> AgentResponse:
+            nonlocal calls
+            turn = calls % 3
+            calls += 1
+            if turn == failed_turn:
+                return AgentResponse(output="", success=False, error="Timeout")
+            return AgentResponse(output="OK")
+
+        scanner = MemoryPoisonScanner(depth="basic")
+        scanner.attacks = scanner.attacks[:1]
+        report = await scanner.scan(Agent.from_function(fn))
+        assert report.passed == 0
+        assert not report.is_resistant
+        assert report.findings[0].to_dict()["error"] == "Timeout"
+        assert "INCONCLUSIVE" in report.to_markdown()
+
     def test_scan_sync(self):
         """Synchronous scan works."""
         agent = _make_agent()
