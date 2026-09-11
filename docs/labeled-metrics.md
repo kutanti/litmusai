@@ -76,3 +76,39 @@ For offline use, `classification_observation(...)` parses and scores one full
 response, and `classification_metrics(observations, config)` recomputes all
 counts from observations. Repetitions are pooled before division. Duplicate
 observation identities and mixed task types are rejected.
+
+## Extraction rules
+
+Set `metrics.task_type: extraction`. Ground truth and selected JSON predictions
+must both be entity lists or both be field mappings:
+
+- Entity lists match whole JSON values, including every property of an entity
+  object. The order of entities and object keys does not matter.
+- Field mappings match each `(field name, value)` pair. A list-valued field
+  contributes one occurrence per list item. An empty list contributes no items.
+  Nested objects are matched as whole values; array order inside an entity or
+  nested object remains significant.
+
+Each expected occurrence can match only one predicted occurrence. Unmatched
+expected items are FN; unmatched predicted items (including extra duplicates)
+are FP. A missing field contributes FN and an extra field contributes FP.
+`null` is a literal value, distinct from an absent field. Matching preserves JSON
+types: `1`, `1.0`, `true`, and `"1"` are distinct.
+
+Matching is exact by default. `normalize_whitespace: true` trims strings and
+collapses whitespace runs to one space. `casefold: true` applies Unicode case
+folding. These options affect string values recursively, never field names or
+object keys. Original values remain available in each observation's `matched`,
+`missing`, and `extra` evidence.
+
+Invalid JSON, a missing prediction pointer, the wrong root shape, and execution
+errors are invalid predictions. They contribute FN for all expected items and
+appear in coverage/error counts. A valid empty list or mapping has full prediction
+coverage even if it misses expected items. Non-finite JSON numbers are invalid.
+
+Extraction aggregates pool TP/FP/FN before calculating precision, recall and F1.
+`exact_match_accuracy` additionally counts cases with no missing/extra items and
+a valid prediction. If expected and predicted are both empty, that case is an
+exact match but its precision/recall/F1 denominators are zero and undefined.
+Use `extraction_observation(...)` and `extraction_metrics(observations, config)`
+for offline scoring.
