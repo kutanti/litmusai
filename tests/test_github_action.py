@@ -82,6 +82,49 @@ def test_failed_evaluation_keeps_outputs_and_comment(action_run, monkeypatch):
 
 
 @pytest.mark.parametrize("exit_code", [0, 1])
+async def test_multi_run_exports_keep_action_outputs_and_comment(
+    action_run, monkeypatch, exit_code,
+):
+    from litmusai import Agent, TestCase, TestSuite, multi_evaluate
+    from litmusai.ci import results_to_dict
+
+    predictions = iter(["wrong", "hello"])
+    multi = await multi_evaluate(
+        Agent.from_function(lambda _: next(predictions)),
+        TestSuite("repeated", [TestCase(
+            id="q1", task="greet", expected_contains=["hello"],
+        )]),
+        runs=2, verbose=False,
+    )
+    payload = {
+        "results": results_to_dict(multi),
+        "success": exit_code == 0,
+        "has_regression": False,
+    }
+    monkeypatch.setenv("INPUT_RUNS", "2")
+    monkeypatch.setenv("INPUT_POST_COMMENT", "true")
+
+    def run(args, *, check):
+        path = Path(".litmus/results.json")
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.CompletedProcess(args, exit_code)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    assert action_run() == exit_code
+    outputs = dict(line.split("=", 1) for line in Path("outputs").read_text().splitlines())
+    assert outputs["pass-rate"] == "1.0"
+    assert outputs["passed"] == "1"
+    assert outputs["failed"] == "0"
+    assert outputs["total-cost"] == "0.0"
+    report = Path(outputs["comment-path"]).read_text(encoding="utf-8")
+    assert "PASSED" in report
+    assert "repeated" in report
+    assert "q1" in report
+    assert Path(outputs["results-path"]).read_text(encoding="utf-8") == json.dumps(payload)
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
 def test_missing_results_do_not_reuse_stale_files(action_run, monkeypatch, exit_code):
     write_results()
     Path(".litmus/pr-comment.md").write_text("stale")

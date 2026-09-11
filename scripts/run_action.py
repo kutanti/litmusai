@@ -44,6 +44,9 @@ def main() -> int:
 
     data = json.loads(results_path.read_text(encoding="utf-8"))
     results = data.get("results", data)
+    # Keep action outputs consistent with the CLI's last-run checks and reports.
+    if "run_results" in results:
+        results = results["run_results"][-1]
     summary = results["summary"]
     outputs = {
         "results-path": results_path.as_posix(),

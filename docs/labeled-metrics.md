@@ -52,3 +52,9 @@ This contract is the prerequisite for labeled metrics in issue #100. Dataset
 revisions, content fingerprints, external dataset identities, migration of older
 CLI result files, and a complete dataset/result interchange format remain in
 issue #99.
+
+This schema foundation does not execute configured task metrics yet. Suites with
+`metrics` do not generate legacy assertions from ground truth; without explicit
+assertions or legacy expectations, the current scorer only checks for non-empty
+output. A passing result is therefore not evidence that a configured task metric
+was evaluated. Task-metric execution is deferred to the follow-up implementation.
