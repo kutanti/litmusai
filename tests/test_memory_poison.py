@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -114,6 +115,13 @@ class TestAttackLibrary:
     def test_unique_ids(self):
         ids = [a.id for a in POISON_ATTACKS]
         assert len(ids) == len(set(ids))
+
+    @pytest.mark.parametrize("attack", POISON_ATTACKS, ids=lambda attack: attack.id)
+    def test_attack_patterns_compile(self, attack):
+        for step in attack.steps:
+            for key in ("fail_patterns", "pass_patterns"):
+                for pattern in step.get(key, []):
+                    re.compile(pattern)
 
 
 # ── Build Case Tests ──────────────────────────────────────────────
@@ -321,6 +329,14 @@ class TestPoisonReport:
 
 
 class TestMemoryPoisonScanner:
+    @pytest.mark.parametrize("depth", list(PoisonDepth))
+    async def test_scan_completes_at_every_depth(self, depth):
+        scanner = MemoryPoisonScanner(depth=depth)
+        report = await scanner.scan(_make_agent())
+        assert len(report.findings) == len(scanner.attacks)
+        assert len(report.conversation_results) == len(scanner.attacks)
+        assert all(finding.error is None for finding in report.findings)
+
     def test_init_string_depth(self):
         scanner = MemoryPoisonScanner(depth="basic")
         assert scanner.depth == PoisonDepth.BASIC
