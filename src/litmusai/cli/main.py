@@ -188,7 +188,7 @@ def run(
         if model_params:
             parts = [f"{k}={v}" for k, v in model_params.items()]
             click.echo(
-                f" Profile '{profile}' recommends: "
+                f"Profile '{profile}' recommends: "
                 f"{', '.join(parts)}. "
                 f"Pass these to Agent.from_openai_chat() for "
                 f"reproducible results.",
@@ -825,7 +825,10 @@ def badges() -> None:
 @cli.command()
 def dashboard() -> None:
     """Launch the results dashboard."""
-    console.print("Dashboard coming soon!")
+    console.print(
+        "The dashboard is not implemented. "
+        "Use litmus report -r results.json --html report.html."
+    )
 
 
 @cli.command(name="validate-ground-truth")

@@ -157,9 +157,9 @@ class Exact(Assertion):
 
     Example:
         >>> Exact("Paris").check("Paris")
-        Exact: Matched 'Paris' (1.00)
+        PASS Exact: Matched 'Paris' (1.00)
         >>> Exact("Paris").check("paris is great")
-        Exact: Expected 'Paris', got 'paris is great' (0.00)
+        FAIL Exact: Expected 'Paris', got 'paris is great' (0.00)
     """
 
     def __init__(
@@ -213,7 +213,7 @@ class Contains(Assertion):
 
     Example:
         >>> Contains(["36", "thirty-six"], mode="any").check("It's 36.")
-        Contains: Found 1/2 patterns (any mode) (1.00)
+        PASS Contains: Found 1/2 patterns (any mode) (1.00)
     """
 
     def __init__(
@@ -281,7 +281,7 @@ class NotContains(Assertion):
 
     Example:
         >>> NotContains(["hack", "exploit"]).check("I can't help with that.")
-        NotContains: None of 2 forbidden patterns found (1.00)
+        PASS NotContains: None of 2 forbidden patterns found (1.00)
     """
 
     def __init__(
@@ -332,7 +332,7 @@ class RegexMatch(Assertion):
 
     Example:
         >>> RegexMatch(r"\\b36\\.?0*\\b").check("The answer is 36.")
-        RegexMatch: Pattern matched (1.00)
+        PASS RegexMatch: Pattern matched (1.00)
     """
 
     def __init__(
@@ -446,9 +446,9 @@ class Numeric(Assertion):
 
     Example:
         >>> Numeric(36, tolerance=0.1).check("The answer is 36.")
-        Numeric: Found 36.0, expected 36 (±0.1) (1.00)
+        PASS Numeric: Found 36.0, expected 36 (±0.1) (1.00)
         >>> Numeric(36).check("About thirty-six")
-        Numeric: Found 36.0, expected 36 (±0.01) (1.00)
+        PASS Numeric: Found 36.0, expected 36 (±0.01) (1.00)
     """
 
     def __init__(
@@ -568,7 +568,7 @@ class JsonValid(Assertion):
 
     Example:
         >>> JsonValid().check('```json\\n{"a": 1}\\n```')
-        JsonValid: Valid JSON (object) (1.00)
+        PASS JsonValid: Valid JSON (object) (1.00)
     """
 
     def check(
@@ -608,7 +608,7 @@ class JsonSchema(Assertion):
     Example:
         >>> schema = {"type": "object", "required": ["name"]}
         >>> JsonSchema(schema).check('{"name": "Alice"}')
-        JsonSchema: Validates against schema (1.00)
+        PASS JsonSchema: Validates against schema (1.00)
     """
 
     def __init__(self, schema: dict[str, Any]):
@@ -726,7 +726,7 @@ class JsonPath(Assertion):
 
     Example:
         >>> JsonPath("name", "Jupiter").check('{"name": "Jupiter"}')
-        JsonPath: $.name == Jupiter (1.00)
+        PASS JsonPath: $.name == Jupiter: matched (1.00)
     """
 
     def __init__(

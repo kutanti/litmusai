@@ -44,6 +44,6 @@ Expose the evidence behind a finding, document the heuristic, and add examples t
 
 ## Validation
 
-The baseline passed lint and strict type checking. On Windows, 808 tests passed, 31 failed, and 7 provider integration tests were skipped. The portability branch passed 840 tests after its changes. New regressions cover failed scans, literal action inputs and exit codes, configuration precedence, useful starter assertions, and commit-style checks that exclude inherited history.
+The baseline passed lint and strict type checking. On Windows, 808 tests passed, 31 failed, and 7 provider integration tests were skipped. The portability branch passed 840 tests after its changes. All five branches merged cleanly in a local integration checkout: 867 tests passed, 7 were skipped, lint and strict type checking passed, and both source and wheel packages built. New regressions cover failed scans, literal action inputs and exit codes, configuration precedence, useful starter assertions, and commit-style checks that exclude inherited history.
 
 Provider integration tests were not run against live services. No published Git history was rewritten.
