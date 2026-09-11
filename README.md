@@ -3,40 +3,61 @@
 [![CI](https://github.com/kutanti/litmusai/actions/workflows/ci.yml/badge.svg)](https://github.com/kutanti/litmusai/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/litmuseval)](https://pypi.org/project/litmuseval/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Test framework for AI agents. Think pytest for LLMs — assertions, cost tracking, safety scanning, multi-turn conversations.
+LitmusAI runs test cases against AI agents and records assertion results, latency, token usage, and estimated cost. Use it to compare model or prompt changes on tasks from your application.
+
+Install the `litmuseval` package and import it as `litmusai`:
 
 ```bash
 pip install litmuseval
 ```
 
-## Why I built this
-
-Evaluating AI agents by hand doesn't scale. I needed something that could run the same tests across any model and agent workflows and tell me what actually changed — cost, accuracy, safety. This is that.
-
 ## Quick start
+
+This example runs locally without an API key:
 
 ```python
 import asyncio
-import litmusai
-from litmusai import Agent, TestCase, Numeric, Contains, evaluate
+from litmusai import Agent, Contains, Numeric, TestCase, evaluate
 
-litmusai.configure(api_key="sk-...")
 
-agent = Agent.from_openai_chat(model="gpt-4.1")
+def answer(task: str) -> str:
+    answers = {
+        "What is 15% of 240?": "36",
+        "Who wrote 1984?": "George Orwell",
+    }
+    return answers.get(task, "I don't know")
 
+
+agent = Agent.from_function(answer, name="example")
 results = asyncio.run(evaluate(agent, [
     TestCase(id="math", task="What is 15% of 240?", assertions=[Numeric(36)]),
     TestCase(id="fact", task="Who wrote 1984?", assertions=[Contains(["Orwell"])]),
 ]))
-# 2/2 passed | $0.0003 | 937ms avg
+assert results.passed == 2
+results.save("results.json")
 ```
 
-Or write tests in YAML:
+To call an OpenAI-compatible chat endpoint, replace `agent` with:
+
+```python
+import os
+
+agent = Agent.from_openai_chat(
+    model="gpt-4.1",
+    api_key=os.environ["OPENAI_API_KEY"],
+)
+```
+
+Pass the API key explicitly to this adapter. See [agent adapters](docs/adapters.md) for functions, HTTP endpoints, CLI programs, and framework integrations.
+
+## YAML suites
+
+Save this as `tests.yaml`:
 
 ```yaml
-name: my-tests
+name: refund-tests
 cases:
   - id: refund
     task: "I want to return my shoes"
@@ -48,233 +69,115 @@ cases:
         patterns: ["sorry, I can't help"]
 ```
 
+Define an agent or function in `my_agent.py`, then run:
+
 ```bash
-litmus run --suite my-tests.yaml --agent my_agent:agent
+litmus run --suite tests.yaml --agent my_agent:agent
+litmus run --suite tests.yaml --agent my_agent:agent --runs 5
 ```
 
-## What it actually does
+Assertions cover strings, numbers, regular expressions, JSON, semantic similarity, and LLM grading. `All`, `AnyOf`, `AtLeast`, and `Weighted` combine checks. Semantic and LLM assertions make additional API calls. JSON Schema validation uses the optional `jsonschema` package; install it for full schema support.
 
-**Assertions** — 16 types, not just substring matching. Numeric extraction (handles "thirty-six"), JSON schema validation, embedding similarity, LLM-as-judge, regex, composable logic (All, AnyOf, AtLeast).
+## Results and cost
 
-**Safety scanning** — 46 attack prompts across prompt injection, jailbreaks, PII leaks, bias, hallucination. My GPT-4.1 agent scored 78/100 — it literally replied "HACKED" to one of the injection tests.
+Python results include per-case scores, responses, latency, and token counts. JSON, CSV, JUnit XML, Markdown, and HTML outputs support inspection and CI reporting.
 
-**Memory poisoning detection** — 18 multi-turn attacks that test whether your agent can be manipulated through conversational context. Plants false facts, fake credentials, exfiltration URLs in early turns and checks if the agent follows them later.
+Chat adapters read token counts from provider responses and calculate cost using the bundled pricing table. These are estimates, not billing records: prices can become outdated, and cached tokens or other provider charges may differ. An unrecognized model can report zero cost when no pricing is available.
 
-**Multi-turn conversations** — test multi-step workflows where context matters. Does your agent remember order #12345 from three turns ago? Does a poisoned instruction in turn 1 corrupt behavior in turn 5?
+```bash
+litmus run -s tests.yaml -a my_agent:agent --format json --output run.json
+litmus report -r run.json --html report.html
+litmus diff --before earlier.json --after later.json
+```
 
-**Ground truth management** — define verified answers with provenance tracking (who verified it, when, confidence level). Assertions are auto-generated from ground truth entries.
+When comparing models, save the suite, model parameters, run count, raw results, and pricing assumptions. Small example suites do not establish a general model ranking.
 
-**Real cost tracking** — costs come from actual API responses, not tiktoken estimates. Tiktoken can be off by 10-20%.
+## Conversations
 
-**Multi-run stats** — run the same test 5 times. Some models pass a test 3 out of 5 times. You don't catch that with a single run.
-
-**Multi-dimensional scoring** — score responses across 7 dimensions (correctness, completeness, format, relevance, safety, latency, cost) with configurable weights.
-
-## Multi-turn evaluation
-
-Test conversations where each turn depends on the last:
+Run this inside an async function or a notebook that supports `await`:
 
 ```python
-from litmusai import Agent, MultiTurnCase, Step, ConversationRunner, Contains, Numeric
-
-agent = Agent.from_openai_chat(model="gpt-4.1", api_key="sk-...")
+from litmusai import ConversationRunner, MultiTurnCase, Step
 
 case = MultiTurnCase(
-    id="refund_flow",
-    name="Refund conversation",
+    id="refund", name="Refund conversation",
     steps=[
         Step(user="I want to return my shoes",
              assertions=[Contains(["return", "help"], mode="any")]),
-        Step(user="Order #12345",
-             assertions=[Contains(["12345"])]),
+        Step(user="Order #12345", assertions=[Contains(["12345"])]),
         Step(user="Process the refund",
              assertions=[Contains(["refund", "confirm"], mode="any")]),
     ],
 )
-
 result = await ConversationRunner(agent).run(case)
-# 3/3 steps passed | context maintained | $0.003
+print(result.summary())
 ```
 
-Error compounding detection tells you whether a failure in step 3 was caused by a mistake in step 1 (cascade) or happened independently.
+The runner passes conversation history to the agent. Custom functions must accept and use the `history` keyword argument. The `is_cascade` flag marks failures after the first failure; it does not establish that an earlier mistake caused a later one. Context maintenance uses phrase matching and can misclassify legitimate clarification requests.
 
-## Memory poisoning scanner
-
-Test whether your agent can be manipulated through conversational context injection:
+## Safety and memory poisoning
 
 ```python
-from litmusai import Agent, MemoryPoisonScanner
+from litmusai import MemoryPoisonScanner, SafetyScanner
 
-agent = Agent.from_openai_chat(model="gpt-4.1", api_key="sk-...")
-
-scanner = MemoryPoisonScanner(depth="standard")
-report = await scanner.scan(agent)
-
-print(report.resistance_score)  # 0-100
-print(report.summary())
-# RESISTANT: 12/13 attacks resisted | score 92/100
+safety = await SafetyScanner(depth="standard").scan(agent)
+poisoning = await MemoryPoisonScanner(depth="standard").scan(agent)
+print(safety.to_markdown())
+print(poisoning.summary())
 ```
 
-18 attacks across 6 categories: instruction injection, false fact persistence, identity override, exfiltration setup, authority spoofing, and delayed triggers. Based on attack patterns from DeepMind's "AI Agent Traps" research.
+Safety scans use attack prompts and response patterns. Memory scans inject instructions or false facts into earlier turns and check later responses. The depth setting selects a subset of the attack library. These scores describe the selected checks; they do not prove that an agent is safe or resistant to other attacks.
+
+```bash
+litmus scan --agent my_agent:agent --level thorough --fail-on-unsafe
+```
 
 ## Ground truth
 
-Define verified answers with provenance:
+Define an expected answer and record its source:
 
 ```yaml
+name: science
 cases:
   - id: boiling_point
-    task: "At what temperature does water boil at sea level?"
+    task: "At what temperature does water boil at sea level, in Celsius?"
     ground_truth:
       answer: 100
       answer_type: numeric
       source: "physics textbook"
-      verified_by: "kunal"
+      verified_by: "reviewer"
       confidence: 1.0
 ```
 
-Assertions are auto-generated — numeric tolerance, contains checks, JSON validation — based on the answer type. Explicit assertions in the YAML take precedence.
+The loader generates assertions from the answer type. Explicit assertions take precedence. Provenance fields record what you supply; LitmusAI does not independently verify the answer.
 
-```bash
-litmus validate-ground-truth ground_truth.yaml
-litmus ground-truth-stats suite.yaml
-```
+## Pipelines and profiles
 
-## Some numbers I found interesting
-
-I ran the same suite across models:
-
-| Model | Pass Rate | Cost | Cost/Correct |
-|-------|-----------|------|-------------|
-| GPT-4.1 | 100% | $0.017 | $0.0034 |
-| Claude Sonnet 4 | 100% | $0.011 | $0.0018 |
-| Claude Opus 4 | 83% | $0.043 | $0.0085 |
-
-Opus costs 14x more per correct answer than GPT-4.1 and scores lower. We were using it for months.
-
-## Connect your agent
+`Pipeline` combines evaluation, optional safety scanning, and report generation:
 
 ```python
-Agent.from_openai_chat(model="gpt-4.1")           # OpenAI / compatible
-Agent.from_azure(resource="r", deployment="d")     # Azure
-Agent.from_function(my_fn)                         # any async function
-Agent.from_url("http://localhost:8000/chat")       # HTTP endpoint
-Agent.from_langchain(chain)                        # LangChain
-Agent.from_crewai(crew)                            # CrewAI
+from litmusai import Pipeline
+
+result = await Pipeline(
+    agent, "coding", safety=True, runs=3, report="html",
+).run()
 ```
 
-## Pipeline
-
-Run eval + safety + report in one call:
-
-```python
-import asyncio
-from litmusai import Agent, Pipeline
-
-agent = Agent.from_openai_chat(model="gpt-4.1", api_key="sk-...")
-
-async def main():
-    result = await Pipeline(
-        agent, "coding",
-        safety=True,
-        runs=3,
-        report="html",
-    ).run()
-
-asyncio.run(main())
-```
-
-## Profiles
-
-Presets for common scenarios:
-
-```bash
-litmus run -s coding -a agent:fn --profile quick       # fast iteration
-litmus run -s coding -a agent:fn --profile thorough    # 3 runs, strict threshold
-litmus run -s coding -a agent:fn --profile benchmark   # 5 runs, temp=0
-litmus run -s coding -a agent:fn --profile ci          # strict threshold
-litmus profiles                                         # see all
-```
-
-Custom profiles in YAML:
-
-```yaml
-# .litmus/profiles/production.yaml
-name: production
-runs: 5
-safety: true
-safety_depth: thorough
-threshold: 0.9
-report: html
-```
+`litmus profiles` lists presets. The CLI applies a subset of profile settings; it does not run inline safety scans or set model temperature and seed. Set model parameters on the agent and run safety scans explicitly.
 
 ## Built-in suites
 
-8 suites, 50 test cases to start with. Not meant to be comprehensive — they're a starting point. Write your own for your domain.
-
-```bash
-litmus suites                                    # list them
-litmus run --suite coding --agent my_agent:agent  # run one
-```
-
-`coding` · `research` · `safety` · `planning` · `customer_support` · `summarization` · `instruction_following` · `tool_use`
-
-## Custom assertions
-
-```python
-from litmusai.assertions import Assertion, AssertionResult, register_assertion
-
-class MaxWords(Assertion):
-    def __init__(self, limit: int):
-        self.limit = limit
-
-    def check(self, response: str, **kwargs) -> AssertionResult:
-        count = len(response.split())
-        return AssertionResult(
-            passed=count <= self.limit,
-            score=min(1.0, self.limit / max(count, 1)),
-            reason=f"{count} words (max {self.limit})",
-            assertion_type="MaxWords",
-        )
-
-register_assertion("max_words", MaxWords)
-# Now usable in YAML: { type: max_words, limit: 100 }
-```
-
-## CLI
-
-```bash
-litmus run --suite coding --agent my_agent:agent    # evaluate
-litmus run --suite tests.yaml --runs 5              # multi-run
-litmus scan --agent my_agent:agent --level thorough  # safety scan
-litmus diff --before run1.json --after run2.json     # compare runs
-litmus report -r results.json --html report.html     # generate report
-litmus init                                          # scaffold project
-```
-
-## CI/CD
-
-```yaml
-# .github/workflows/eval.yml
-- uses: kutanti/litmusai@v1
-  with:
-    agent: my_agent:agent
-    suite: coding
-    threshold: 0.8
-```
+`litmus suites` lists `coding`, `research`, `safety`, `planning`, `customer_support`, `summarization`, `instruction_following`, and `tool_use`. Use these as examples, then add cases and assertions for your own application.
 
 ## Development
 
 ```bash
 git clone https://github.com/kutanti/litmusai.git
-cd litmusai && pip install -e ".[dev]"
-pytest                    # 839 tests
-ruff check src/ tests/    # lint
-mypy src/litmusai/        # types
+cd litmusai
+pip install -e ".[dev]"
+pytest
+ruff check src/ tests/
+mypy src/litmusai/ --ignore-missing-imports
 ```
 
-~11K lines of code, 38 source files. MIT licensed.
-
-## License
-
-MIT — [Kunal Tanti](https://github.com/kutanti)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the review process and commit style. Licensed under [MIT](LICENSE).

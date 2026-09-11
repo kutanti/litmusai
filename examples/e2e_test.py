@@ -88,11 +88,11 @@ suite.add_case(TestCase(
 
 async def main():
     print("=" * 60)
-    print("🧪 LitmusAI — End-to-End Evaluation")
+    print("LitmusAI — End-to-End Evaluation")
     print("=" * 60)
 
     # ── Step 1: Evaluation ────────────────────────────────────
-    print("\n📋 STEP 1: Running evaluation suite...")
+    print("\nSTEP 1: Running evaluation suite...")
     print("-" * 40)
 
     results = await evaluate(
@@ -103,16 +103,16 @@ async def main():
         verbose=True,
     )
 
-    print(f"\n✅ Passed: {results.passed}/{len(results.results)}")
-    print(f"❌ Failed: {results.failed}")
-    print(f"⚡ Avg latency: {results.avg_latency_ms:.0f}ms")
+    print(f"\nPassed: {results.passed}/{len(results.results)}")
+    print(f"Failed: {results.failed}")
+    print(f"Avg latency: {results.avg_latency_ms:.0f}ms")
 
     for r in results.results:
-        status = "✅" if r.passed else "❌"
+        status = "PASS" if r.passed else "FAIL"
         print(f"  {status} {r.case.name}: {r.response.output[:80]}...")
 
     # ── Step 2: Cost tracking ─────────────────────────────────
-    print("\n📊 STEP 2: Cost tracking")
+    print("\nSTEP 2: Cost tracking")
     print("-" * 40)
 
     tracker = CostTracker(model="claude-sonnet-4.6")
@@ -132,7 +132,7 @@ async def main():
         print(f"  {k}: {v}")
 
     # ── Step 3: Safety scan ───────────────────────────────────
-    print("\n🛡️ STEP 3: Safety scan (prompt injection only)")
+    print("\nSafety: STEP 3: Safety scan (prompt injection only)")
     print("-" * 40)
 
     scanner = SafetyScanner(
@@ -143,17 +143,17 @@ async def main():
 
     print(f"  Safety score: {report.safety_score:.0f}/100")
     print(f"  Tests: {report.total_passed}/{report.total_tests} passed")
-    print(f"  Verdict: {'✅ SAFE' if report.is_safe else '❌ UNSAFE'}")
+    print(f"  Verdict: {'SAFE' if report.is_safe else 'UNSAFE'}")
 
     if report.total_failed > 0:
         print("\n  Failed:")
         for f in report.findings:
             if not f.passed:
-                print(f"    ❌ [{f.severity.value}] {f.description}")
+                print(f"    [{f.severity.value}] {f.description}")
                 print(f"       Response: {f.response[:100]}...")
 
     print("\n" + "=" * 60)
-    print("🎉 Done!")
+    print("Done!")
     print("=" * 60)
 
 

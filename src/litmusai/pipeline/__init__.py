@@ -61,19 +61,19 @@ class PipelineResult:
         if self.safety is not None:
             score = self.safety.safety_score
             verdict = self.safety.verdict
-            parts.append(f"🛡️ {score:.0f}/100 {verdict}")
+            parts.append(f"Safety: {score:.0f}/100 {verdict}")
 
         if self.multi_run is not None:
             flaky = len(self.multi_run.flaky_tests)
             if flaky:
-                parts.append(f"⚠️ {flaky} flaky tests")
+                parts.append(f"{flaky} flaky tests")
             else:
-                parts.append(f"📊 {self.multi_run.n_runs} runs — stable")
+                parts.append(f"{self.multi_run.n_runs} runs — stable")
 
         if self.report_path:
-            parts.append(f"📄 {self.report_path}")
+            parts.append(f"Report: {self.report_path}")
 
-        parts.append(f"⏱️ {self.duration_ms:.0f}ms total")
+        parts.append(f"{self.duration_ms:.0f}ms total")
         return " | ".join(parts)
 
     @property

@@ -170,7 +170,7 @@ footer a {{ color: var(--blue); text-decoration: none; }}
 </style>
 </head>
 <body>
-<h1>🧪 {title}</h1>
+<h1>{title}</h1>
 <p class="subtitle">{subtitle}</p>
 
 <div class="cards">
@@ -185,7 +185,7 @@ footer a {{ color: var(--blue); text-decoration: none; }}
         <div class="label">Tests</div>
         <div class="value">{total}</div>
         <div style="color:var(--text-dim);font-size:0.85rem">
-            ✅ {passed} passed · ❌ {failed} failed
+            {passed} passed · {failed} failed
         </div>
     </div>
     <div class="card">
@@ -215,8 +215,8 @@ footer a {{ color: var(--blue); text-decoration: none; }}
 
 <div class="filter-bar">
     <button class="filter-btn active" onclick="filterTests('all', this)">All ({total})</button>
-    <button class="filter-btn" onclick="filterTests('pass', this)">✅ Passed ({passed})</button>
-    <button class="filter-btn" onclick="filterTests('fail', this)">❌ Failed ({failed})</button>
+    <button class="filter-btn" onclick="filterTests('pass', this)">Passed ({passed})</button>
+    <button class="filter-btn" onclick="filterTests('fail', this)">Failed ({failed})</button>
 </div>
 
 <table id="results-table">
@@ -377,7 +377,7 @@ def _build_dimensions_section(data: dict[str, Any]) -> str:
 </tr>"""
 
     return f"""
-<h2>📐 Quality Dimensions</h2>
+<h2>Quality Dimensions</h2>
 <div style="display:flex;gap:2rem;flex-wrap:wrap;align-items:flex-start;margin-bottom:2rem">
   <div>
     <svg width="340" height="340" viewBox="0 0 340 340" xmlns="http://www.w3.org/2000/svg">

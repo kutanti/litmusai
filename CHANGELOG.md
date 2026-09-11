@@ -19,7 +19,7 @@ All notable changes to LitmusAI will be documented in this file.
 - **`evaluate(dimension_budget=...)` kwarg** — custom budgets per evaluation
 
 ### Changed
-- README rewritten — developer-focused, model-agnostic, no AI fluff
+- Updated README examples for the public API
 - OpenAI and Azure adapters support conversation history via `history` kwarg
 - Duplicate system messages prevented when using conversation history with agent-level system prompts
 - Profile display shows temperature/seed when set
@@ -37,7 +37,7 @@ All notable changes to LitmusAI will be documented in this file.
 - **`EvalProfile` dataclass** — frozen, validated, with `to_kwargs()` for Pipeline integration
 
 ### Changed
-- README rewritten — less marketing, more developer-focused. Plain descriptions, real code examples, no AI-generated fluff
+- Added README examples for pipelines and evaluation profiles
 
 ### Fixed
 - CLI version display now correctly shows package version

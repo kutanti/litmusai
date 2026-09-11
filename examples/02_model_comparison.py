@@ -65,7 +65,7 @@ async def main():
 
     # Check for API key
     if not os.getenv("OPENAI_API_KEY"):
-        print("⚠️  Set OPENAI_API_KEY to run this example")
+        print(" Set OPENAI_API_KEY to run this example")
         print("   export OPENAI_API_KEY=sk-...")
         return
 

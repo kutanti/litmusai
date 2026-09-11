@@ -75,7 +75,7 @@ async def main():
 
     # Access individual results
     for r in results.results:
-        status = "✅" if r.passed else "❌"
+        status = "PASS" if r.passed else "FAIL"
         print(f"  {status} {r.case.name}: {r.score.reason}")
 
 

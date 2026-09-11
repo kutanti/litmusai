@@ -1,32 +1,27 @@
 # Contributing to LitmusAI
 
-Thank you for your interest in contributing to LitmusAI! 🧪
+Bug fixes, test cases, adapters, and documentation changes are welcome. For a larger API change, open an issue with the use case before implementing it.
 
-## Getting Started
+## Development
 
-1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/litmusai.git`
-3. Install dev dependencies: `pip install -e ".[dev]"`
-4. Create a branch: `git checkout -b feature/your-feature`
-5. Make your changes
-6. Run tests: `pytest`
-7. Run linting: `ruff check .`
-8. Submit a pull request
+1. Fork and clone the repository.
+2. Create a virtual environment and install dependencies with `pip install -e ".[dev]"`.
+3. Create a branch for the change.
+4. Run `pytest`, `ruff check src/ tests/`, and `mypy src/litmusai/ --ignore-missing-imports`.
+5. Open a pull request that explains the problem, changed behavior, and validation.
 
-## What to Contribute
+Add regression tests for bug fixes. Public functions need type hints and docstrings. API tests that need provider credentials are skipped when those credentials are absent.
 
-- 🧪 **New test suites** — Add tasks for new domains
-- 🔌 **Agent adapters** — Connect more frameworks
-- 📊 **Scorers** — New ways to evaluate outputs (LLM-as-judge, code execution, etc.)
-- 📖 **Documentation** — Improve guides and examples
-- 🐛 **Bug fixes** — Always welcome!
+## Writing and commit style
 
-## Code Style
+Use plain language in documentation, CLI output, PR titles, and commit messages. Describe what the code does. Avoid decorative emojis, slogans, unsupported benchmark claims, and claims of guaranteed safety or reproducibility.
 
-- We use `ruff` for linting
-- Type hints are required
-- Docstrings for public functions
+Use a short imperative subject, such as `Fix safety scores for failed API calls` or `Document cost estimation limits`. Prefixes such as `fix:` and `docs:` are optional. Explain non-obvious behavior and validation in the body. PR titles and commit messages must contain no emojis; CI checks the title and commits introduced by each PR.
 
-## Questions?
+To check a branch locally:
 
-Open an issue or start a discussion!
+```bash
+python scripts/check_commit_messages.py --base origin/main --head HEAD --title "Your PR title"
+```
+
+The check applies to new commits. Existing commit messages and dates are preserved.

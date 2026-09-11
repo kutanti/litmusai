@@ -92,7 +92,7 @@ class TestCaseDiff:
         )
         assert d.is_regression
         assert not d.is_improvement
-        assert d.status_icon == "🔴"
+        assert d.status_icon == "REGRESSION"
 
     def test_improvement(self):
         d = CaseDiff(
@@ -101,7 +101,7 @@ class TestCaseDiff:
         )
         assert d.is_improvement
         assert not d.is_regression
-        assert d.status_icon == "🟢"
+        assert d.status_icon == "IMPROVEMENT"
 
     def test_new_test(self):
         d = CaseDiff(
@@ -109,7 +109,7 @@ class TestCaseDiff:
             baseline_passed=None, current_passed=True,
         )
         assert d.is_new
-        assert d.status_icon == "🆕"
+        assert d.status_icon == "NEW"
 
     def test_removed_test(self):
         d = CaseDiff(
@@ -117,7 +117,7 @@ class TestCaseDiff:
             baseline_passed=True, current_passed=None,
         )
         assert d.is_removed
-        assert d.status_icon == "⚪"
+        assert d.status_icon == "REMOVED"
 
     def test_stable_pass(self):
         d = CaseDiff(
@@ -126,14 +126,14 @@ class TestCaseDiff:
         )
         assert not d.is_regression
         assert not d.is_improvement
-        assert d.status_icon == "✅"
+        assert d.status_icon == "PASS"
 
     def test_stable_fail(self):
         d = CaseDiff(
             case_id="q1", case_name="Math", task="test",
             baseline_passed=False, current_passed=False,
         )
-        assert d.status_icon == "❌"
+        assert d.status_icon == "FAIL"
 
     def test_score_change(self):
         d = CaseDiff(
@@ -355,10 +355,10 @@ class TestDiffResults:
         ])
         diff = diff_results(baseline, current)
         md = diff.to_markdown()
-        assert "## 📊 Evaluation Diff" in md
+        assert "## Evaluation Diff" in md
         assert "Regressions" in md
         assert "Code" in md
-        assert "📉" in md  # pass rate dropped
+        assert "decrease" in md  # pass rate dropped
 
     def test_to_markdown_no_regressions(self):
         baseline = _make_run(results=[

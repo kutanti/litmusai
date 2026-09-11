@@ -166,14 +166,14 @@ class ConversationResult:
     def summary(self) -> str:
         """One-line summary string."""
         parts = [
-            f"{'✅' if self.passed else '❌'} {self.passed_steps}/{self.total_steps} steps",
+            f"{'PASS' if self.passed else 'FAIL'} {self.passed_steps}/{self.total_steps} steps",
         ]
         if self.cascade_failures > 0:
-            parts.append(f"🔗 {self.cascade_failures} cascade")
+            parts.append(f"{self.cascade_failures} cascade")
         if self.independent_failures > 0:
-            parts.append(f"💥 {self.independent_failures} independent")
-        parts.append(f"💰 ${self.total_cost:.4f}")
-        parts.append(f"⏱️ {self.total_latency_ms:.0f}ms")
+            parts.append(f"{self.independent_failures} independent")
+        parts.append(f"${self.total_cost:.4f}")
+        parts.append(f"{self.total_latency_ms:.0f}ms")
         return " | ".join(parts)
 
     def to_dict(self) -> dict[str, Any]:
