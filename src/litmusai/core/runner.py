@@ -29,7 +29,8 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from litmusai.core.agent import Agent, AgentResponse
 from litmusai.core.scorer import Scorer, ScoreResult
 from litmusai.core.suite import TestCase, TestSuite
-from litmusai.metrics.schema import SCHEMA_VERSION, Observation
+from litmusai.metrics import aggregate_metrics, classification_observation, extraction_observation
+from litmusai.metrics.schema import SCHEMA_VERSION, MetricConfig, Observation
 from litmusai.scoring import (
     DimensionBudget,
     ScoreVector,
@@ -61,11 +62,15 @@ class TestResult:
     output_tokens: int = 0
     dimensions: ScoreVector | None = None
     observation: Observation | None = None
+    evaluation_id: str = ""
+    repetition: int = 1
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary for JSON logging."""
         d = {
             "case_id": self.case.id,
+            "evaluation_id": self.evaluation_id,
+            "repetition": self.repetition,
             "case_name": self.case.name,
             "task": self.case.task,
             "response": self.response.output[:2000],
@@ -102,7 +107,18 @@ class EvalResults:
     timestamp: str = ""
     config: dict[str, Any] = field(default_factory=dict)
     evaluation_id: str = field(default_factory=lambda: uuid4().hex)
-    repetition: int = 1
+    repetition: int | None = 1
+    metric_config: MetricConfig | None = None
+
+    @property
+    def metrics(self) -> dict[str, Any] | None:
+        """Task metrics pooled from all observations, separate from assertion scores."""
+        if self.metric_config is None:
+            return None
+        observations = [r.observation for r in self.results if r.observation is not None]
+        if len(observations) != len(self.results):
+            raise ValueError("labeled results must retain an observation for every case")
+        return aggregate_metrics(observations, self.metric_config)
 
     @property
     def pass_rate(self) -> float:
@@ -160,6 +176,8 @@ class EvalResults:
             "schema_version": SCHEMA_VERSION,
             "evaluation_id": self.evaluation_id,
             "repetition": self.repetition,
+            "metric_config": self.metric_config.model_dump() if self.metric_config else None,
+            "metrics": self.metrics,
             "agent_name": self.agent_name,
             "suite_name": self.suite_name,
             "timestamp": self.timestamp,
@@ -186,7 +204,7 @@ class EvalResults:
         """Save results to a JSON file."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2, default=str)
         return path
 
@@ -277,6 +295,28 @@ class MultiRunResults:
     evaluation_id: str = field(default_factory=lambda: uuid4().hex)
 
     @property
+    def combined(self) -> EvalResults:
+        """Pool all repetitions for reporting without averaging task-level F1 scores."""
+        config = self.run_results[0].metric_config if self.run_results else None
+        if any(run.metric_config != config for run in self.run_results):
+            raise ValueError("cannot combine runs with different metric configurations")
+        return EvalResults(
+            agent_name=self.agent_name, suite_name=self.suite_name,
+            results=[result for run in self.run_results for result in run.results],
+            total_cost=self.total_cost,
+            total_time_ms=sum(run.total_time_ms for run in self.run_results),
+            total_input_tokens=sum(run.total_input_tokens for run in self.run_results),
+            total_output_tokens=sum(run.total_output_tokens for run in self.run_results),
+            timestamp=self.timestamp, evaluation_id=self.evaluation_id, repetition=None,
+            metric_config=config, config=self.run_results[0].config if self.run_results else {},
+        )
+
+    @property
+    def metrics(self) -> dict[str, Any] | None:
+        """Calculate metrics from the combined repetition counts."""
+        return self.combined.metrics
+
+    @property
     def mean_pass_rate(self) -> float:
         if not self.run_results:
             return 0.0
@@ -347,7 +387,9 @@ class MultiRunResults:
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:
+        combined = self.combined.to_dict()
         return {
+            **combined,
             "schema_version": SCHEMA_VERSION,
             "evaluation_id": self.evaluation_id,
             "agent_name": self.agent_name,
@@ -356,6 +398,7 @@ class MultiRunResults:
             "timestamp": self.timestamp,
             "run_results": [run.to_dict() for run in self.run_results],
             "summary": {
+                **combined["summary"],
                 "mean_pass_rate": round(self.mean_pass_rate, 4),
                 "std_pass_rate": round(self.std_pass_rate, 4),
                 "total_cost": round(self.total_cost, 6),
@@ -379,6 +422,13 @@ class MultiRunResults:
 
     def __repr__(self) -> str:
         return f"MultiRunResults({self.summary()})"
+
+    def save(self, path: str | Path) -> Path:
+        """Save all repetitions and pooled metrics as UTF-8 JSON."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.to_dict(), indent=2, default=str), encoding="utf-8")
+        return path
 
 
 async def multi_evaluate(
@@ -494,6 +544,9 @@ async def evaluate(
         raise ValueError("repetition must be >= 1")
     if evaluation_id == "":
         raise ValueError("evaluation_id must not be empty")
+    if concurrency < 1:
+        raise ValueError("concurrency must be >= 1")
+    suite.validate_metrics()
 
     scorer = scorer or Scorer()
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -511,6 +564,7 @@ async def evaluate(
         config=config,
         evaluation_id=evaluation_id or uuid4().hex,
         repetition=repetition,
+        metric_config=suite.metrics,
     )
 
     semaphore = asyncio.Semaphore(concurrency)
@@ -519,6 +573,16 @@ async def evaluate(
     async def run_case(case: TestCase) -> TestResult:
         async with semaphore:
             response = await agent.run(case.task)
+            observation = None
+            if suite.metrics is not None:
+                observe = (classification_observation
+                           if suite.metrics.task_type == "classification"
+                           else extraction_observation)
+                observation = observe(
+                    case.expected_value, response.output, config=suite.metrics, case_id=case.id,
+                    evaluation_id=results.evaluation_id, repetition=repetition,
+                    success=response.success, error=response.error,
+                )
             # Use async scoring to avoid blocking the event loop
             score = await scorer.ascore(case, response)
 
@@ -539,6 +603,9 @@ async def evaluate(
                 input_tokens=response.input_tokens,
                 output_tokens=response.output_tokens,
                 dimensions=dimensions,
+                observation=observation,
+                evaluation_id=results.evaluation_id,
+                repetition=repetition,
             )
 
     def _accumulate(result: TestResult) -> None:

@@ -321,8 +321,12 @@ class DiffSummary:
 def load_results(path: str | Path) -> dict[str, Any]:
     """Load evaluation results from a JSON file."""
     path = Path(path)
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data: dict[str, Any] = json.load(f)
+    if isinstance(data.get("results"), dict):
+        data = data["results"]  # CLI status envelope around the shared result payload.
+    if data.get("schema_version", "1.0") != "1.0":
+        raise ValueError(f"Unsupported result schema_version: {data['schema_version']!r}")
     return data
 
 
@@ -358,7 +362,7 @@ def list_results(
                     "total_cost", 0,
                 ),
             })
-        except (json.JSONDecodeError, KeyError):
+        except (ValueError, KeyError):
             continue
 
     # Sort by timestamp descending (newest first)
@@ -383,11 +387,19 @@ def diff_results(
     # Index baseline results by case_id
     baseline_cases: dict[str, dict[str, Any]] = {}
     for r in baseline.get("results", []):
+        if r["case_id"] in baseline_cases:
+            raise ValueError(
+                "case-level diff requires one repetition; select a run from run_results"
+            )
         baseline_cases[r["case_id"]] = r
 
     # Index current results
     current_cases: dict[str, dict[str, Any]] = {}
     for r in current.get("results", []):
+        if r["case_id"] in current_cases:
+            raise ValueError(
+                "case-level diff requires one repetition; select a run from run_results"
+            )
         current_cases[r["case_id"]] = r
 
     # Union of all case IDs

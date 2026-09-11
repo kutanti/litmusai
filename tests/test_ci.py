@@ -291,7 +291,8 @@ class TestResultsToDict:
         )
 
         data = results_to_dict(results)
-        assert data["agent"] == "test"
+        assert data["agent_name"] == "test"
+        assert data == results.to_dict()
         assert data["summary"]["total"] == 1
         assert data["summary"]["passed"] == 1
         assert len(data["results"]) == 1

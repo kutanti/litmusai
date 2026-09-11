@@ -112,3 +112,79 @@ a valid prediction. If expected and predicted are both empty, that case is an
 exact match but its precision/recall/F1 denominators are zero and undefined.
 Use `extraction_observation(...)` and `extraction_metrics(observations, config)`
 for offline scoring.
+
+## Run locally
+
+From a checkout with `pip install -e ".[dev]"`:
+
+```bash
+litmus run --suite examples/routing.yaml --agent examples/labeled_agents.py:route --runs 3 --output routing.json
+litmus run --suite examples/extraction.yaml --agent examples/labeled_agents.py:extract --output extraction.json
+litmus report -r routing.json --html routing.html
+```
+
+The examples use ordinary Python functions and make no provider calls. The
+keyword router deliberately misses a refund request; the email extractor returns
+a duplicate and misses an obfuscated address. Both produce non-perfect metrics.
+
+The Python API uses the same suite configuration:
+
+```python
+import asyncio
+from litmusai import Agent, GroundTruth, MetricConfig, TestCase, TestSuite, evaluate
+
+suite = TestSuite(
+    "routing",
+    [TestCase(id="invoice", task="Invoice help", ground_truth=GroundTruth(answer="billing"))],
+    metrics=MetricConfig(task_type="classification", labels=["billing", "support"]),
+)
+result = asyncio.run(evaluate(Agent.from_function(lambda task: "billing"), suite))
+print(result.metrics["accuracy"])
+print(result.results[0].observation.evidence)
+result.save("routing.json")
+```
+
+The runner validates all labeled ground truth and unique, nonempty case IDs before
+calling the agent. It reads `AgentResponse.output` in full before presentation
+truncation. Agents returning structured predictions should return JSON text, or
+`AgentResponse(output=json.dumps(prediction))`.
+
+`EvalResults.metrics` and `MultiRunResults.metrics` expose aggregate values and
+counts. `TestResult.observation` holds the complete selected prediction and
+per-case evidence. `MultiRunResults.combined` provides a pooled evaluation, while
+`run_results` keeps each repetition. Combined result payloads use `repetition:
+null`; individual observations and per-run payloads retain their one-based number.
+
+CLI and pipeline reports use all repetitions. Existing assertion pass-rate and
+cost checks also use these pooled results. Metrics are informational: precision,
+recall and F1 thresholds, LangSmith connectors, and retrieval metrics are separate
+issues. Legacy assertion scores and the `correctness` dimension keep their
+existing meaning; neither is classification accuracy. With no assertions or
+legacy checks, the existing score checks only whether the output is nonempty.
+
+CLI JSON files retain the outer status envelope (`results`, `success`,
+`has_regression`); the inner `results` is the same versioned payload returned by
+the Python API. Canonical names are `agent_name`, `suite_name`, `case_name`,
+`score_reason`, and `response` in place of the earlier CLI aliases. The response
+preview remains truncated; the metric observation's selected values are complete.
+`load_results()` reads both Python files and CLI envelopes and rejects unsupported
+explicit versions. It does not invent case IDs for older CLI files.
+
+To recalculate metrics after a JSON round trip:
+
+```python
+from litmusai import MetricConfig, Observation, aggregate_metrics
+from litmusai.results import load_results
+
+data = load_results("routing.json")
+observations = [Observation.model_validate(row["observation"]) for row in data["results"]]
+metrics = aggregate_metrics(observations, MetricConfig.model_validate(data["metric_config"]))
+assert metrics == data["metrics"]
+```
+
+HTML and CLI summaries include coverage, errors, undefined flags, underlying
+counts and class averages; HTML case details include metric evidence. Existing
+JUnit/CSV exporters continue to report assertion outcomes. For a case-level diff
+of multi-run results, select one entry from each payload's `run_results` first.
+The diff rejects repeated case IDs instead of silently selecting one prediction;
+statistical baseline comparisons remain follow-up work.

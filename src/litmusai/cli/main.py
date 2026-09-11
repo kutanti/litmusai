@@ -424,11 +424,10 @@ def diff(
     try:
         baseline = load_results(baseline_path)
         current = load_results(current_path)
-    except json.JSONDecodeError as e:
-        console.print(f"[red]Invalid JSON: {e}[/red]")
+        result = diff_results(baseline, current)
+    except ValueError as e:
+        console.print(f"[red]Cannot compare results: {e}[/red]")
         sys.exit(1)
-
-    result = diff_results(baseline, current)
 
     if fmt == "markdown":
         console.print(result.to_markdown())
@@ -725,10 +724,12 @@ def report(
         sys.exit(1)
 
     try:
-        data = json.loads(results_path.read_text())
-    except json.JSONDecodeError as e:
+        from litmusai.results import load_results
+
+        data = load_results(results_path)
+    except ValueError as e:
         console.print(
-            f"[red]Invalid JSON in results file: {e}[/red]"
+            f"[red]Cannot read results file: {e}[/red]"
         )
         sys.exit(1)
 

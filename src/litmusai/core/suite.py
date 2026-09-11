@@ -65,6 +65,26 @@ class TestSuite:
         """Add a test case to the suite."""
         self.cases.append(case)
 
+    def validate_metrics(self) -> None:
+        """Validate labeled identities and all ground truth before agent execution."""
+        if self.metrics is None:
+            return
+        from litmusai.metrics.classification import validate_classification_truth
+        from litmusai.metrics.extraction import validate_extraction_truth
+
+        MetricConfig.model_validate(self.metrics.model_dump())
+        seen: set[str] = set()
+        validate = (validate_classification_truth if self.metrics.task_type == "classification"
+                    else validate_extraction_truth)
+        for case in self.cases:
+            if not isinstance(case.id, str) or not case.id.strip() or case.id in seen:
+                raise ValueError(f"labeled case IDs must be nonempty and unique: {case.id!r}")
+            seen.add(case.id)
+            try:
+                validate(case.expected_value, self.metrics)
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise ValueError(f"case {case.id!r}: {exc}") from exc
+
     def add(
         self,
         task: str,

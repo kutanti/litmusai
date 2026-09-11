@@ -47,6 +47,7 @@ from litmusai.memory_poison import (
     MemoryPoisonScanner,
     PoisonReport,
 )
+from litmusai.metrics import MetricConfig, Observation, aggregate_metrics
 from litmusai.pipeline import Pipeline, PipelineResult, run_pipeline
 from litmusai.profiles import (
     EvalProfile,
@@ -69,6 +70,9 @@ __all__ = [
     "ToolCall",
     "TestCase",
     "TestSuite",
+    "MetricConfig",
+    "Observation",
+    "aggregate_metrics",
     "evaluate",
     "multi_evaluate",
     "compare",

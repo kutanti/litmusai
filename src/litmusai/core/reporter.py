@@ -39,41 +39,20 @@ class Reporter:
 
         console.print(table)
         console.print(f"\n{results.summary()}")
+        if results.metrics:
+            from litmusai.metrics.presentation import print_metrics
+
+            print_metrics(results.metrics, console)
 
     @staticmethod
     def to_json(results: Any, path: str | Path | None = None) -> str:
         """Export results as JSON."""
-        data = {
-            "agent": results.agent_name,
-            "suite": results.suite_name,
-            "timestamp": results.timestamp,
-            "summary": {
-                "total": len(results.results),
-                "passed": results.passed,
-                "failed": results.failed,
-                "pass_rate": results.pass_rate,
-                "total_cost": results.total_cost,
-                "avg_latency_ms": results.avg_latency_ms,
-            },
-            "results": [
-                {
-                    "test": r.case.name,
-                    "task": r.case.task,
-                    "passed": r.passed,
-                    "score": r.score.score,
-                    "reason": r.score.reason,
-                    "latency_ms": r.latency_ms,
-                    "cost": r.cost,
-                    "output": r.response.output[:500],
-                }
-                for r in results.results
-            ],
-        }
+        data = results.to_dict()
 
         json_str = json.dumps(data, indent=2)
 
         if path:
-            Path(path).write_text(json_str)
+            Path(path).write_text(json_str, encoding="utf-8")
 
         return json_str
 
@@ -101,7 +80,11 @@ class Reporter:
                 f"| {i} | {r.case.name} | {status} | {r.latency_ms:.0f}ms | ${r.cost:.4f} |"
             )
 
+        if results.metrics:
+            from litmusai.metrics.presentation import metric_markdown
+
+            lines.extend(["", metric_markdown(results.metrics)])
         md = "\n".join(lines)
         if path:
-            Path(path).write_text(md)
+            Path(path).write_text(md, encoding="utf-8")
         return md

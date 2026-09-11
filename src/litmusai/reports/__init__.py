@@ -13,6 +13,7 @@ Usage::
 from __future__ import annotations
 
 import html
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -210,6 +211,7 @@ footer a {{ color: var(--blue); text-decoration: none; }}
 </div>
 
 {dimensions_section}
+{metrics_section}
 
 <h2>Test Results</h2>
 
@@ -428,11 +430,18 @@ def _make_row(idx: int, r: dict[str, Any]) -> str:
     latency = r.get("latency_ms", 0)
     cost = r.get("cost", 0)
     case_id = r.get("case_id", f"case_{idx}")
-    safe_id = _safe_id(case_id)
+    safe_id = f"{_safe_id(case_id)}-{idx}"
     case_name = _esc(r.get("case_name", case_id))
+    if r.get("repetition"):
+        case_name += f" (run {_esc(str(r['repetition']))})"
     reason = _esc(r.get("score_reason", ""))
     response = _esc(str(r.get("response", ""))[:500])
     task = _esc(str(r.get("task", ""))[:200])
+    evidence = ""
+    if r.get("observation"):
+        evidence = "<br><strong>Metric evidence:</strong><pre>" + _esc(
+            json.dumps(r["observation"], ensure_ascii=False, indent=2)
+        ) + "</pre>"
 
     row = (
         f'<tr class="result-row" data-status="{"pass" if passed else "fail"}" '
@@ -455,6 +464,7 @@ def _make_row(idx: int, r: dict[str, Any]) -> str:
         f"<strong>Task:</strong> {task}<br>"
         f"<strong>Reason:</strong> {reason}<br>"
         f"<strong>Response:</strong> {response}"
+        f"{evidence}"
         f"</td></tr>"
     )
 
@@ -498,6 +508,8 @@ def render_html(
     agent_name = _esc(data.get("agent_name", "Agent"))
     suite_name = _esc(data.get("suite_name", "Suite"))
 
+    from litmusai.metrics.presentation import metric_html
+
     html_out = _TEMPLATE.format(
         title=f"{agent_name} — {suite_name}",
         subtitle=f"Agent: {agent_name} · "
@@ -518,6 +530,7 @@ def render_html(
         rows=rows_html,
         timestamp=_esc(data.get("timestamp", "")),
         dimensions_section=_build_dimensions_section(data),
+        metrics_section=metric_html(data["metrics"]) if data.get("metrics") else "",
     )
 
     output_path.write_text(html_out, encoding="utf-8")
