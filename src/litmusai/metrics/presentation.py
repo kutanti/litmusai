@@ -98,7 +98,7 @@ def metric_html(metrics: dict[str, Any]) -> str:
                        for row in rows)
         return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
 
-    parts = [f"<h2>{metrics['task_type'].title()} metrics</h2>",
+    parts = [f"<h2>{html.escape(metrics['task_type'].title())} metrics</h2>",
              f"<p>{html.escape(_summary(metrics))}</p>", table(HEADERS, _rows(metrics)),
              "<p>* Zero-denominator values contribute 0 and are flagged undefined.</p>",
              "<p>Assertion scores and pass rates are reported separately.</p>"]

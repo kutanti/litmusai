@@ -158,6 +158,8 @@ async def test_cli_examples_export_pooled_metrics_and_render_reports(tmp_path, m
         report = (tmp_path / f"{name}.html").read_text(encoding="utf-8")
         assert "Metric evidence" in report
         assert "Precision" in report
+        assert "Check Pass Rate" in report
+        assert "nonempty output" in report
         ids = re.findall(r'id="(detail-[^"]+)"', report)
         assert len(ids) == len(set(ids)) == data["summary"]["total"]
 

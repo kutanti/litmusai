@@ -176,7 +176,7 @@ footer a {{ color: var(--blue); text-decoration: none; }}
 
 <div class="cards">
     <div class="card">
-        <div class="label">Pass Rate</div>
+        <div class="label">{pass_label}</div>
         <div class="value {pass_color}">{pass_rate}</div>
         <div class="pass-bar">
             <div class="fill" style="width:{pass_pct}%;background:var(--{pass_color})"></div>
@@ -190,7 +190,7 @@ footer a {{ color: var(--blue); text-decoration: none; }}
         </div>
     </div>
     <div class="card">
-        <div class="label">Avg Score</div>
+        <div class="label">{score_label}</div>
         <div class="value">{avg_score}</div>
     </div>
     <div class="card">
@@ -210,8 +210,9 @@ footer a {{ color: var(--blue); text-decoration: none; }}
     </div>
 </div>
 
-{dimensions_section}
+{check_note}
 {metrics_section}
+{dimensions_section}
 
 <h2>Test Results</h2>
 
@@ -516,6 +517,12 @@ def render_html(
                  f"Suite: {suite_name} · "
                  f"{total} tests",
         pass_rate=f"{pass_rate_val:.0%}",
+        pass_label="Check Pass Rate" if data.get("metrics") else "Pass Rate",
+        score_label="Avg Check Score" if data.get("metrics") else "Avg Score",
+        check_note=(
+            "<p>Check scores use assertions or legacy checks. Without explicit checks, "
+            "they only test for nonempty output.</p>" if data.get("metrics") else ""
+        ),
         pass_pct=f"{pass_pct:.0f}",
         pass_color=_score_color(pass_rate_val),
         total=total,
