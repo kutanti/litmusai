@@ -5,6 +5,9 @@ Labeled suites use `ground_truth.answer` for expected values and a suite-level
 remain independent of labeled metrics. Ground truth is retained even when a case
 has assertions. Python cases accept `GroundTruth` directly; the older
 `metadata["ground_truth"]` representation remains readable.
+YAML ground truth requires a non-null answer unless its type is `subjective`.
+`apply_ground_truth` retains labels and metadata even when explicit assertions
+already exist; its return value counts only cases with newly generated assertions.
 
 ```yaml
 schema_version: "1.0"
@@ -29,6 +32,11 @@ Saved evaluation results add `schema_version: "1.0"`, `evaluation_id` and
 `repetition` to the existing result structure. Repetition numbers start at one;
 all runs from `multi_evaluate` share an evaluation ID. Multi-run exports retain
 each individual evaluation in `run_results`.
+CLI JSON output (`--format json` or a `.json` `--output` path) retains the same
+versioned fields inside its existing `results` wrapper, including every repetition
+for `--runs`. Legacy CLI aliases such as `agent`, `suite`, `test`, `reason`, and
+`output` remain available alongside canonical fields. Human-readable reports,
+baseline comparisons, and threshold/budget checks still use the last run.
 
 `litmusai.metrics.Observation` is the versioned record used by task metrics. It
 retains case ID, evaluation ID, repetition, task type, expected and predicted

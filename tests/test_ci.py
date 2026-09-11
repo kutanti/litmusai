@@ -296,3 +296,24 @@ class TestResultsToDict:
         assert data["summary"]["passed"] == 1
         assert len(data["results"]) == 1
         assert data["results"][0]["passed"] is True
+        for key, value in results.to_dict().items():
+            if key != "results":
+                assert data[key] == value
+        for key, value in results.results[0].to_dict().items():
+            assert data["results"][0][key] == value
+        assert data["results"][0]["test"] == "test1"
+        assert data["results"][0]["reason"] == "ok"
+        assert data["results"][0]["output"] == "done"
+
+    async def test_preserves_multi_run_payload(self):
+        from litmusai import Agent, TestCase, TestSuite, multi_evaluate
+
+        suite = TestSuite("test", [TestCase(id="q1", task="hello")])
+        multi = await multi_evaluate(
+            Agent.from_function(lambda task: task), suite, runs=2, verbose=False,
+        )
+        data = results_to_dict(multi)
+        for key, value in multi.to_dict().items():
+            if key != "run_results":
+                assert data[key] == value
+        assert data["run_results"] == [results_to_dict(run) for run in multi.run_results]

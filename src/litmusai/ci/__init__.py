@@ -17,7 +17,7 @@ from rich.console import Console
 from rich.table import Table
 
 from litmusai.core.agent import Agent
-from litmusai.core.runner import EvalResults, evaluate
+from litmusai.core.runner import EvalResults, MultiRunResults, evaluate
 from litmusai.core.scorer import Scorer
 from litmusai.core.suite import TestSuite
 
@@ -166,41 +166,18 @@ def compare_with_baseline(
 # ─── Result Serialization ─────────────────────────────────────────
 
 
-def results_to_dict(results: EvalResults) -> dict[str, Any]:
-    """Convert EvalResults to a serializable dict."""
-    d: dict[str, Any] = {
-        "agent": results.agent_name,
-        "suite": results.suite_name,
-        "timestamp": results.timestamp,
-        "summary": {
-            "total": len(results.results),
-            "passed": results.passed,
-            "failed": results.failed,
-            "pass_rate": round(results.pass_rate, 4),
-            "total_cost": round(results.total_cost, 6),
-            "avg_latency_ms": round(results.avg_latency_ms, 1),
-        },
-        "results": [
-            {
-                "test": r.case.name,
-                "task": r.case.task,
-                "passed": r.passed,
-                "score": r.score.score,
-                "reason": r.score.reason,
-                "latency_ms": round(r.latency_ms, 1),
-                "cost": round(r.cost, 6),
-                "output": r.response.output[:500],
-                **(
-                    {"dimensions": r.dimensions.to_dict()}
-                    if r.dimensions else {}
-                ),
-            }
-            for r in results.results
-        ],
-    }
-    avg_dim = results.avg_dimensions
-    if avg_dim:
-        d["dimensions"] = avg_dim.to_dict()
+def results_to_dict(results: EvalResults | MultiRunResults) -> dict[str, Any]:
+    """Preserve the saved-result schema with legacy CLI aliases."""
+    d = results.to_dict()
+    d["agent"] = results.agent_name
+    d["suite"] = results.suite_name
+    if isinstance(results, MultiRunResults):
+        d["run_results"] = [results_to_dict(run) for run in results.run_results]
+    else:
+        for record, result in zip(d["results"], results.results):
+            record["test"] = result.case.name
+            record["reason"] = result.score.reason
+            record["output"] = result.response.output[:500]
     return d
 
 
@@ -448,6 +425,7 @@ async def run_evaluation(
         f"{f' ({runs} runs)' if runs > 1 else ''}..."
     )
 
+    multi = None
     if runs > 1:
         from litmusai.core.runner import multi_evaluate
 
@@ -523,7 +501,8 @@ async def run_evaluation(
             success = False
 
     # Build full output payload (consistent for stdout and file)
-    output_payload: dict[str, Any] = {"results": data}
+    export_data = results_to_dict(multi) if multi is not None else data
+    output_payload: dict[str, Any] = {"results": export_data}
     if baseline:
         output_payload["comparison"] = compare_with_baseline(data, baseline)
     output_payload["success"] = success
@@ -533,7 +512,10 @@ async def run_evaluation(
     if fmt == "table":
         format_table(data, show_dimensions=show_dimensions)
     elif fmt == "json":
-        console.print(json.dumps(output_payload, indent=2))
+        console.print(
+            json.dumps(output_payload, indent=2),
+            soft_wrap=True, markup=False, highlight=False,
+        )
     elif fmt in ("markdown", "github"):
         md = format_report(data, baseline, fmt="markdown",
                            threshold=effective_threshold)
@@ -556,4 +538,4 @@ async def run_evaluation(
         bp = save_baseline(data)
         console.print(f"Baseline saved to {bp}")
 
-    return {"success": success, "data": data, "has_regression": has_regression}
+    return {"success": success, "data": export_data, "has_regression": has_regression}

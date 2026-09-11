@@ -263,6 +263,8 @@ class TestApplyGroundTruth:
         assert len(suite.cases[0].assertions) == 1  # Numeric
         assert len(suite.cases[1].assertions) == 1  # AnyOf
         assert "ground_truth" in suite.cases[0].metadata
+        assert suite.cases[0].ground_truth is gt["q1"]
+        assert suite.cases[1].ground_truth is gt["q2"]
 
     def test_skip_cases_with_existing_assertions(self):
         from litmusai import TestCase, TestSuite
@@ -275,8 +277,23 @@ class TestApplyGroundTruth:
         ))
 
         gt = {"q1": GroundTruth(answer=42, answer_type="numeric")}
+        assertions = suite.cases[0].assertions
         updated = apply_ground_truth(suite, gt)
         assert updated == 0  # skipped — already has assertions
+        assert suite.cases[0].assertions is assertions
+        assert suite.cases[0].ground_truth is gt["q1"]
+        assert suite.cases[0].expected_value == 42
+        assert suite.cases[0].metadata["ground_truth"] == gt["q1"].to_dict()
+
+    def test_retains_truth_without_generated_assertions(self):
+        from litmusai import TestCase, TestSuite
+
+        suite = TestSuite("test", [TestCase(id="q1", task="List items")])
+        gt = {"q1": GroundTruth(answer=[], answer_type="list")}
+        assert apply_ground_truth(suite, gt) == 0
+        assert suite.cases[0].assertions == []
+        assert suite.cases[0].ground_truth is gt["q1"]
+        assert suite.cases[0].metadata["ground_truth"] == gt["q1"].to_dict()
 
     def test_unmatched_cases(self):
         from litmusai import TestCase, TestSuite
@@ -313,6 +330,56 @@ class TestGroundTruthStats:
 
 
 class TestYAMLSuiteGroundTruth:
+    @pytest.mark.parametrize("ground_truth", [
+        {},
+        *[
+            entry
+            for answer_type in GroundTruth.VALID_TYPES
+            if answer_type != "subjective"
+            for entry in (
+                {"answer_type": answer_type},
+                {"answer_type": answer_type, "answer": None},
+            )
+        ],
+    ])
+    @pytest.mark.parametrize("mode", ["legacy", "assertions", "metrics"])
+    def test_missing_answer_is_rejected(self, tmp_path, ground_truth, mode):
+        from litmusai import TestSuite
+
+        case = {"id": "q1", "task": "Test", "ground_truth": ground_truth}
+        data = {"name": "test", "cases": [case]}
+        if mode == "assertions":
+            case["assertions"] = [{"type": "contains", "value": "hello"}]
+        elif mode == "metrics":
+            data["metrics"] = {"task_type": "extraction"}
+        path = tmp_path / "suite.yaml"
+        path.write_text(yaml.safe_dump(data), encoding="utf-8")
+        with pytest.raises(ValueError, match="Case 'q1'.*requires an answer"):
+            TestSuite.from_yaml(path)
+
+    @pytest.mark.parametrize("ground_truth", [
+        {"answer": 0, "answer_type": "numeric"},
+        {"answer": False, "answer_type": "boolean"},
+        {"answer": "", "answer_type": "text"},
+        {"answer": [], "answer_type": "list"},
+        {"answer": {}, "answer_type": "json"},
+        {"answer_type": "subjective"},
+    ])
+    def test_falsy_answers_and_subjective_truth_are_valid(
+        self, tmp_path, ground_truth, monkeypatch,
+    ):
+        from litmusai import TestSuite
+
+        monkeypatch.setenv("OPENAI_API_KEY", "test-placeholder")
+        path = tmp_path / "suite.yaml"
+        path.write_text(yaml.safe_dump({
+            "name": "test",
+            "cases": [{"id": "q1", "ground_truth": ground_truth}],
+        }), encoding="utf-8")
+        case = TestSuite.from_yaml(path).cases[0]
+        assert case.ground_truth == GroundTruth.from_dict(ground_truth)
+        assert case.expected_value == ground_truth.get("answer")
+
     def test_suite_with_ground_truth(self, tmp_path):
         """YAML suite with ground_truth auto-generates assertions."""
         from litmusai.core.suite import TestSuite

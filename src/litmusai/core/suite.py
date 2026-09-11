@@ -152,6 +152,11 @@ class TestSuite:
                     )
                     raise ValueError(msg)
                 gt = GroundTruth.from_dict(raw_ground_truth)
+                if gt.answer_type != "subjective" and gt.answer is None:
+                    raise ValueError(
+                        f"Case '{case.id}': non-subjective type "
+                        f"'{gt.answer_type}' requires an answer"
+                    )
                 case.ground_truth = gt
                 if not case.assertions and suite.metrics is None:
                     case.assertions = gt.to_assertions()

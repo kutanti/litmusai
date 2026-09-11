@@ -15,6 +15,61 @@ def runner():
     return CliRunner()
 
 
+@pytest.mark.parametrize("runs", [1, 2])
+@pytest.mark.parametrize("fmt", ["json", "table", "markdown"])
+def test_run_exports_versioned_results(runner, tmp_path, runs, fmt):
+    suite = tmp_path / "suite.yaml"
+    suite.write_text(
+        "name: export-test\ncases:\n"
+        "  - id: q1\n    name: Display name\n    task: hello\n",
+        encoding="utf-8",
+    )
+    agent = tmp_path / "agent.py"
+    agent.write_text(
+        "from litmusai import AgentResponse\n"
+        "count = 0\n"
+        "def run(task):\n"
+        "    global count\n"
+        "    count += 1\n"
+        "    return AgentResponse(output=f'[bold]run {count}[/bold] ' + 'x' * 600,\n"
+        "                         input_tokens=count, output_tokens=2,\n"
+        "                         model='test-model')\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "results.json"
+    result = runner.invoke(cli, [
+        "run", "--suite", str(suite), "--agent", f"{agent}:run",
+        "--runs", str(runs), "--format", fmt, "--output", str(output),
+        "--log-dir", str(tmp_path / "logs"),
+    ])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    if fmt == "json":
+        stdout_payload, _ = json.JSONDecoder().raw_decode(
+            result.output[result.output.index("{"):],
+        )
+        assert stdout_payload == payload
+    data = payload["results"]
+    assert payload["success"] is True
+    assert data["schema_version"] == "1.0"
+    assert data["evaluation_id"]
+    evaluations = data["run_results"] if runs > 1 else [data]
+    assert len(evaluations) == runs
+    if runs > 1:
+        assert data["n_runs"] == runs
+        assert data["case_stats"]["q1"]["n_runs"] == runs
+    for repetition, evaluation in enumerate(evaluations, 1):
+        assert evaluation["schema_version"] == "1.0"
+        assert evaluation["evaluation_id"] == data["evaluation_id"]
+        assert evaluation["repetition"] == repetition
+        record = evaluation["results"][0]
+        assert record["case_id"] == "q1"
+        assert record["response"] == f"[bold]run {repetition}[/bold] " + "x" * 600
+        assert record["input_tokens"] == repetition
+        assert record["model"] == "test-model"
+        assert record["success"] is True
+
+
 # ─── litmus init ─────────────────────────────────────────────────
 
 
