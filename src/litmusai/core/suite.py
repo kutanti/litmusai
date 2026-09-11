@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from litmusai.ground_truth import GroundTruth
+from litmusai.metrics.schema import SCHEMA_VERSION, MetricConfig
+
 if TYPE_CHECKING:
     from litmusai.assertions import Assertion
 
@@ -32,19 +35,31 @@ class TestCase:
     timeout_seconds: float = 60.0
     metadata: dict[str, Any] = field(default_factory=dict)
     scorer: str = "default"
+    ground_truth: GroundTruth | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
             self.name = self.id
 
+    @property
+    def expected_value(self) -> Any:
+        """Read labeled truth, including the legacy metadata representation."""
+        if self.ground_truth is not None:
+            return self.ground_truth.answer
+        return self.metadata.get("ground_truth", {}).get("answer")
+
 
 class TestSuite:
     """Collection of test cases for evaluating AI agents."""
 
-    def __init__(self, name: str, cases: list[TestCase] | None = None, description: str = ""):
+    def __init__(
+        self, name: str, cases: list[TestCase] | None = None, description: str = "",
+        *, metrics: MetricConfig | None = None,
+    ):
         self.name = name
         self.description = description
         self.cases = cases or []
+        self.metrics = metrics
 
     def add_case(self, case: TestCase) -> None:
         """Add a test case to the suite."""
@@ -99,12 +114,16 @@ class TestSuite:
                     value: "42"
         """
         path = Path(path)
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
+
+        if data.get("schema_version", SCHEMA_VERSION) != SCHEMA_VERSION:
+            raise ValueError(f"Unsupported suite schema_version: {data['schema_version']!r}")
 
         suite = cls(
             name=data.get("name", path.stem),
             description=data.get("description", ""),
+            metrics=MetricConfig.model_validate(data["metrics"]) if "metrics" in data else None,
         )
 
         for case_data in data.get("cases", []):
@@ -125,17 +144,17 @@ class TestSuite:
                 )
             # Auto-generate assertions from ground_truth if no
             # explicit assertions were provided
-            if not case.assertions and raw_ground_truth:
+            if raw_ground_truth is not None:
                 if not isinstance(raw_ground_truth, dict):
                     msg = (
                         f"'ground_truth' must be a mapping in case "
                         f"'{case.id}', got {type(raw_ground_truth).__name__}"
                     )
                     raise ValueError(msg)
-                from litmusai.ground_truth import GroundTruth
-
                 gt = GroundTruth.from_dict(raw_ground_truth)
-                case.assertions = gt.to_assertions()
+                case.ground_truth = gt
+                if not case.assertions and suite.metrics is None:
+                    case.assertions = gt.to_assertions()
                 case.metadata["ground_truth"] = gt.to_dict()
             suite.add_case(case)
 
@@ -149,19 +168,22 @@ class TestSuite:
         """
         path = Path(path)
         # Skip non-serializable fields (assertions are Python objects)
-        skip_fields = {"assertions", "scorer"}
-        data = {
+        skip_fields = {"assertions", "scorer", "ground_truth"}
+        data: dict[str, Any] = {
+            "schema_version": SCHEMA_VERSION,
             "name": self.name,
             "description": self.description,
             "cases": [
                 {
-                    k: v for k, v in case.__dict__.items()
-                    if v and k not in skip_fields
+                    **{k: v for k, v in case.__dict__.items() if v and k not in skip_fields},
+                    **({"ground_truth": case.ground_truth.to_dict()} if case.ground_truth else {}),
                 }
                 for case in self.cases
             ],
         }
-        with open(path, "w") as f:
+        if self.metrics is not None:
+            data["metrics"] = self.metrics.model_dump()
+        with open(path, "w", encoding="utf-8") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
     @classmethod

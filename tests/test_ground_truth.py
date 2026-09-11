@@ -373,9 +373,10 @@ class TestYAMLSuiteGroundTruth:
         }))
 
         suite = TestSuite.from_yaml(suite_file)
-        # Explicit assertions used, not ground_truth
+        # Explicit assertions control scoring; ground truth remains available.
         assert len(suite.cases[0].assertions) == 1
-        assert "ground_truth" not in suite.cases[0].metadata
+        assert suite.cases[0].expected_value == 42
+        assert suite.cases[0].metadata["ground_truth"]["answer"] == 42
 
 
 class TestCLI:

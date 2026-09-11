@@ -21,6 +21,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
@@ -28,6 +29,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from litmusai.core.agent import Agent, AgentResponse
 from litmusai.core.scorer import Scorer, ScoreResult
 from litmusai.core.suite import TestCase, TestSuite
+from litmusai.metrics.schema import SCHEMA_VERSION, Observation
 from litmusai.scoring import (
     DimensionBudget,
     ScoreVector,
@@ -58,6 +60,7 @@ class TestResult:
     input_tokens: int = 0
     output_tokens: int = 0
     dimensions: ScoreVector | None = None
+    observation: Observation | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary for JSON logging."""
@@ -80,6 +83,8 @@ class TestResult:
         }
         if self.dimensions:
             d["dimensions"] = self.dimensions.to_dict()
+        if self.observation is not None:
+            d["observation"] = self.observation.model_dump(mode="json")
         return d
 
 
@@ -96,6 +101,8 @@ class EvalResults:
     total_output_tokens: int = 0
     timestamp: str = ""
     config: dict[str, Any] = field(default_factory=dict)
+    evaluation_id: str = field(default_factory=lambda: uuid4().hex)
+    repetition: int = 1
 
     @property
     def pass_rate(self) -> float:
@@ -150,6 +157,9 @@ class EvalResults:
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary for JSON logging."""
         d: dict[str, Any] = {
+            "schema_version": SCHEMA_VERSION,
+            "evaluation_id": self.evaluation_id,
+            "repetition": self.repetition,
             "agent_name": self.agent_name,
             "suite_name": self.suite_name,
             "timestamp": self.timestamp,
@@ -264,6 +274,7 @@ class MultiRunResults:
     case_stats: dict[str, CaseStats] = field(default_factory=dict)
     run_results: list[EvalResults] = field(default_factory=list)
     timestamp: str = ""
+    evaluation_id: str = field(default_factory=lambda: uuid4().hex)
 
     @property
     def mean_pass_rate(self) -> float:
@@ -337,10 +348,13 @@ class MultiRunResults:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "schema_version": SCHEMA_VERSION,
+            "evaluation_id": self.evaluation_id,
             "agent_name": self.agent_name,
             "suite_name": self.suite_name,
             "n_runs": self.n_runs,
             "timestamp": self.timestamp,
+            "run_results": [run.to_dict() for run in self.run_results],
             "summary": {
                 "mean_pass_rate": round(self.mean_pass_rate, 4),
                 "std_pass_rate": round(self.std_pass_rate, 4),
@@ -396,6 +410,7 @@ async def multi_evaluate(
         raise ValueError(msg)
 
     all_runs: list[EvalResults] = []
+    evaluation_id = uuid4().hex
 
     for i in range(runs):
         if verbose:
@@ -405,6 +420,7 @@ async def multi_evaluate(
         result = await evaluate(
             agent, suite, scorer=scorer,
             concurrency=concurrency, verbose=verbose,
+            evaluation_id=evaluation_id, repetition=i + 1,
         )
         all_runs.append(result)
 
@@ -434,6 +450,7 @@ async def multi_evaluate(
         case_stats=case_stats,
         run_results=all_runs,
         timestamp=time.strftime("%Y-%m-%dT%H:%M:%S"),
+        evaluation_id=evaluation_id,
     )
 
     if verbose:
@@ -451,6 +468,8 @@ async def evaluate(
     *,
     log_dir: str | Path | None = None,
     dimension_budget: DimensionBudget | None = None,
+    evaluation_id: str | None = None,
+    repetition: int = 1,
 ) -> EvalResults:
     """Run an agent against a test suite and return results.
 
@@ -462,12 +481,19 @@ async def evaluate(
         verbose: Show progress bar.
         log_dir: Directory to save full result logs (JSON).
         dimension_budget: Custom latency/cost budgets for scoring.
+        evaluation_id: Shared identity for repetitions; generated if omitted.
+        repetition: One-based repetition number within the evaluation.
 
     Returns:
         :class:`EvalResults` with per-case scores and aggregates.
     """
     if isinstance(suite, list):
         suite = TestSuite(name="evaluation", cases=suite)
+
+    if repetition < 1:
+        raise ValueError("repetition must be >= 1")
+    if evaluation_id == "":
+        raise ValueError("evaluation_id must not be empty")
 
     scorer = scorer or Scorer()
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -483,6 +509,8 @@ async def evaluate(
         suite_name=suite.name,
         timestamp=timestamp,
         config=config,
+        evaluation_id=evaluation_id or uuid4().hex,
+        repetition=repetition,
     )
 
     semaphore = asyncio.Semaphore(concurrency)
