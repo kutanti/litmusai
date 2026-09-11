@@ -2,6 +2,33 @@
 
 All notable changes to LitmusAI will be documented in this file.
 
+## [0.4.0] - 2026-09-10
+
+### Added
+
+- Memory-poisoning scans with 18 conversation attacks across six categories. `MemoryPoisonScanner` supports basic, standard, and thorough depths and returns findings with per-attack results.
+- Windows CI coverage alongside Linux tests for Python 3.10, 3.11, and 3.12.
+- CI checks for emojis in new PR titles and commit messages. Existing commit history is preserved.
+
+### Changed
+
+- `evaluate()` accepts a list of test cases, and test-case names default to their IDs.
+- Documentation uses plain language, runnable local examples, and explicit limits for cost estimates, scan heuristics, result formats, and multi-run gates.
+
+### Fixed
+
+- Failed agent calls remain failed in safety scans, memory scans, and conversation steps, including steps without assertions. Scan reports and pipeline summaries show `INCONCLUSIVE` when agent errors prevent a verdict.
+- Standard and thorough memory scans no longer crash on Python 3.11 and newer because of repeated inline regex flags.
+- GitHub Action inputs are passed as literal arguments, outputs are exposed to later steps, and stale result files are cleared. The action installs the selected action revision and preserves evaluation exit codes.
+- CLI run count, concurrency, and threshold follow explicit options, then profile settings, then configuration defaults. CLI run counts and concurrency reject values below one.
+- Starter assertions check meaningful answers, and the CLI version matches the package version.
+- HTML report encoding, elapsed-time measurements, and platform-dependent tests work on Windows.
+
+### Known limitations
+
+- Multi-run CLI gates and cost checks use the last run; `Pipeline` uses the first run for its primary result and threshold.
+- CLI JSON summaries and Python-saved results have different schemas. Use Python-saved results for report exports and case-level diffs.
+
 ## [0.3.0] - 2026-04-07
 
 ### Added
@@ -97,5 +124,8 @@ All notable changes to LitmusAI will be documented in this file.
 - GitHub Actions CI (lint + test + type check)
 - Copilot auto-review on PRs
 
+[0.4.0]: https://github.com/kutanti/litmusai/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/kutanti/litmusai/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/kutanti/litmusai/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/kutanti/litmusai/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kutanti/litmusai/releases/tag/v0.1.0

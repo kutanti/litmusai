@@ -241,7 +241,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: kutanti/litmusai@c9f808c789efd781e82ad6180cf4d72a55c16e7f
+      - uses: kutanti/litmusai@v0.4.0
         id: evaluation
         with:
           suite: tests.yaml
@@ -256,7 +256,7 @@ jobs:
           path: ${{ steps.evaluation.outputs.results-path }}
 ```
 
-The pinned revision includes the current action fixes. The action installs LitmusAI from its selected revision and fails when the evaluation fails a threshold, budget, or baseline comparison. It exposes `pass-rate`, `total-cost`, `passed`, `failed`, `has-regression`, and `results-path` as step outputs. Results remain available after a failed evaluation when a results file was produced.
+The action installs LitmusAI from its selected revision and fails when the evaluation fails a threshold, budget, or baseline comparison. It exposes `pass-rate`, `total-cost`, `passed`, `failed`, `has-regression`, and `results-path` as step outputs. Results remain available after a failed evaluation when a results file was produced.
 
 The local example needs no provider credentials or extra dependencies. For your own agent, install any additional dependencies before the evaluation step and pass its credentials through that step's `env`. If installing packages in an earlier step, use `actions/setup-python` with the same version as the action's `python-version` input (default `3.11`).
 
