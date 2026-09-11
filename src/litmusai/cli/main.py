@@ -13,11 +13,13 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from litmusai import __version__
+
 console = Console()
 
 
 @click.group()
-@click.version_option(version="0.2.0", prog_name="litmusai")
+@click.version_option(version=__version__, prog_name="litmusai")
 def cli() -> None:
     """🧪 LitmusAI — The open-source evaluation framework for AI agents."""
 
@@ -48,12 +50,12 @@ def init() -> None:
         '    task: "Say hello"\n'
         '    assertions:\n'
         '      - type: contains\n'
-        '        values: ["hello"]\n'
+        '        patterns: ["hello"]\n'
         '  - id: test_002\n'
         '    task: "What is 2 + 2?"\n'
         '    assertions:\n'
         '      - type: contains\n'
-        '        values: ["4"]\n'
+        '        patterns: ["4"]\n'
     )
 
     console.print(
@@ -79,7 +81,7 @@ def init() -> None:
     help="Agent module path (e.g. my_agent:agent)",
 )
 @click.option(
-    "--concurrency", "-c", default=5,
+    "--concurrency", "-c", default=5, type=click.IntRange(min=1),
     help="Max parallel evaluations",
 )
 @click.option(
@@ -107,7 +109,7 @@ def init() -> None:
     help="Min pass rate to succeed (0.0-1.0)",
 )
 @click.option(
-    "--runs", "-n", default=1, type=int,
+    "--runs", "-n", default=1, type=click.IntRange(min=1),
     help="Number of runs for statistical reporting (default: 1)",
 )
 @click.option(
@@ -206,6 +208,7 @@ def run(
             concurrency
             if ctx.get_parameter_source("concurrency")
             == click.core.ParameterSource.COMMANDLINE
+            or profile is not None
             else None
         ),
         threshold=threshold,
@@ -214,6 +217,7 @@ def run(
             runs
             if ctx.get_parameter_source("runs")
             == click.core.ParameterSource.COMMANDLINE
+            or profile is not None
             else None
         ),
         log_dir=log_dir,
