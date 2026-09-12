@@ -264,7 +264,7 @@ class TestApplyGroundTruth:
         assert len(suite.cases[1].assertions) == 1  # AnyOf
         assert "ground_truth" in suite.cases[0].metadata
 
-    def test_skip_cases_with_existing_assertions(self):
+    def test_retain_truth_with_existing_assertions(self):
         from litmusai import TestCase, TestSuite
         from litmusai.assertions import Contains
 
@@ -276,7 +276,9 @@ class TestApplyGroundTruth:
 
         gt = {"q1": GroundTruth(answer=42, answer_type="numeric")}
         updated = apply_ground_truth(suite, gt)
-        assert updated == 0  # skipped — already has assertions
+        assert updated == 1
+        assert suite.cases[0].expected_value == 42
+        assert suite.cases[0].assertions[0].patterns == ["hello"]
 
     def test_unmatched_cases(self):
         from litmusai import TestCase, TestSuite

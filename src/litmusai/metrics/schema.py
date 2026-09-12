@@ -2,13 +2,31 @@
 
 from __future__ import annotations
 
-import json
+import math
 import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA_VERSION: Literal["1.0"] = "1.0"
+
+
+def _validate_json_value(value: Any) -> None:
+    if value is None or isinstance(value, (str, bool, int)):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("observation values must be finite JSON data")
+    elif isinstance(value, list):
+        for item in value:
+            _validate_json_value(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError("observation object keys must be strings")
+            _validate_json_value(item)
+    else:
+        raise ValueError("observation values must be JSON scalars, lists, or string-keyed objects")
 
 
 class MetricConfig(BaseModel):
@@ -68,9 +86,9 @@ class Observation(BaseModel):
 
     @model_validator(mode="after")
     def validate_json(self) -> Observation:
-        """Reject values that cannot be saved as standard JSON."""
+        """Reject values that change type or lose keys during a JSON round trip."""
         try:
-            json.dumps([self.expected, self.predicted, self.evidence], allow_nan=False)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("observation values must be finite JSON data") from exc
+            _validate_json_value([self.expected, self.predicted, self.evidence])
+        except RecursionError as exc:
+            raise ValueError("observation values must be acyclic JSON data") from exc
         return self
