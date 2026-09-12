@@ -1,11 +1,27 @@
 # LitmusAI
 
+**AI agent evaluation for Python and CI.**
+
 [![CI](https://github.com/kutanti/litmusai/actions/workflows/ci.yml/badge.svg)](https://github.com/kutanti/litmusai/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/litmuseval)](https://pypi.org/project/litmuseval/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-LitmusAI runs test cases against AI agents and records assertion results, labeled task metrics, latency, token usage, and estimated cost. Use it to compare model or prompt changes on tasks from your application.
+Turn tasks from your application into repeatable checks for your AI agent. LitmusAI measures answer quality, consistency across runs, latency, token usage, and estimated cost so you can evaluate a model, prompt, or workflow change before shipping it.
+
+Start with a Python function and local assertions; connect a model or an existing agent when you're ready. The same suites run from Python, the command line, and GitHub Actions.
+
+[Quick start](#quick-start) · [Agent adapters](docs/adapters.md) · [Usage guide](docs/usage.md) · [Labeled metrics](docs/labeled-metrics.md) · [Feature validation](docs/feature-validation.md)
+
+| What you need to check | What LitmusAI provides |
+|---|---|
+| Does the agent return the right answer? | Python and YAML suites, string/number/JSON assertions, semantic checks, and LLM grading |
+| Does routing or extraction match your labels? | Accuracy, precision, recall, F1, confusion matrices, and field/entity matching |
+| Is the result consistent? | Repeated evaluations, per-case pass rates, score variation, and flaky-case detection |
+| Did a model or prompt change help? | Agent comparison, saved baselines, and case-level regression diffs |
+| Can it follow a conversation? | History-aware conversations, assertions on each turn, and memory-poisoning probes |
+| What does it cost to run? | Token accounting, estimated cost, latency, and configurable score budgets |
+| Can it fit into your delivery workflow? | CLI gates, GitHub Actions, JSON/Markdown/HTML reports, JUnit XML, and CSV |
 
 ## Installation
 
@@ -14,6 +30,8 @@ Requires Python 3.10 or newer. Install the `litmuseval` package and import it as
 ```bash
 pip install litmuseval
 ```
+
+The package is **`litmuseval`**, the Python import is **`litmusai`**, and the command is **`litmus`**. Local assertions and HTTP/chat adapters work with the base installation. For full JSON Schema validation, also run `pip install jsonschema`. Framework integrations need their framework's dependencies; see [adapters](docs/adapters.md).
 
 This README describes the current repository. To install that version, including the latest merged fixes, use Git:
 
@@ -40,13 +58,16 @@ def answer(task: str) -> str:
 
 
 agent = Agent.from_function(answer, name="example")
-results = asyncio.run(evaluate(agent, [
+cases = [
     TestCase(id="math", task="What is 15% of 240?", assertions=[Numeric(36)]),
     TestCase(id="fact", task="Who wrote 1984?", assertions=[Contains(["Orwell"])]),
-]))
+]
+results = asyncio.run(evaluate(agent, cases))
 assert results.passed == 2
 results.save("results.json")
 ```
+
+Expected result: **2/2 cases pass**, and `results.json` contains both responses, scores, and timings. This local function supplies no token or cost metadata, so those totals are zero.
 
 To call an OpenAI-compatible chat endpoint, replace `agent` with:
 
@@ -96,9 +117,29 @@ litmus run --suite tests.yaml --agent my_agent.py:agent --runs 5
 
 Replace the example function with your application's agent. An importable module can also be loaded as `my_agent:agent`.
 
-For a new project, `litmus init` writes `.litmus/config.yaml` and `suites/example.yaml`. The starter suite checks for "hello" and "4"; replace it with cases for your agent.
+For a new project, `litmus init` writes `.litmus/config.yaml` and `suites/example.yaml`. Run that suite with `litmus run -s suites/example.yaml -a my_agent.py:agent`. The starter suite checks for "hello" and "4"; adapt your agent or replace it with cases for your application. Run `init` in a new directory because it overwrites those starter files.
 
-Assertions cover strings, numbers, regular expressions, JSON, semantic similarity, and LLM grading. `All`, `AnyOf`, `AtLeast`, and `Weighted` combine checks. Semantic and LLM assertions make additional API calls. JSON Schema validation uses the optional `jsonschema` package; install it for full schema support.
+Assertions cover strings, numbers, regular expressions, JSON, semantic similarity, and LLM grading. `All`, `AnyOf`, `AtLeast`, and `Weighted` combine checks; `Custom` accepts a Python predicate. Semantic and LLM assertions make additional API calls. See the [assertion reference and extension examples](docs/usage.md#assertions) for Python names, YAML types, custom registration, and judge configuration.
+
+## Compare changes and repeat runs
+
+Reuse `agent` and `cases` from the quick start to compare two implementations:
+
+```python
+from litmusai import TestSuite, compare, multi_evaluate
+
+suite = TestSuite(name="quickstart", cases=cases)
+candidate = Agent.from_function(lambda task: "36", name="candidate")
+comparison = asyncio.run(compare({"baseline": agent, "candidate": candidate}, suite))
+assert comparison["baseline"].passed == 2
+assert comparison["candidate"].passed == 1
+
+repeated = asyncio.run(multi_evaluate(agent, suite, runs=5))
+print(repeated.to_table())
+repeated.save("repeated.json")
+```
+
+`multi_evaluate()` reports mean and standard deviation, each case's reliability, and `flaky_tests` for cases that both pass and fail across repetitions. Results retain every run. Use enough representative cases and repetitions for the decision you are making; a small example is not a model ranking.
 
 ## Classification and extraction metrics
 
@@ -111,6 +152,8 @@ litmus run -s examples/routing.yaml -a examples/labeled_agents.py:route --runs 3
 litmus run -s examples/extraction.yaml -a examples/labeled_agents.py:extract -o extraction.json
 litmus report -r routing.json --html routing.html
 ```
+
+The routing example deliberately misses one billing request: expected accuracy is 75%, with macro F1 of about 0.733. The extraction example includes a duplicate and a missed address: expected micro precision and recall are both 75%.
 
 Failed calls and malformed predictions remain visible through error counts, prediction coverage and missed labels/items. Metrics pool counts across all repetitions and remain separate from assertion pass rates. See [labeled metrics](docs/labeled-metrics.md) for the Python API, matching rules, undefined values and result schema.
 
@@ -131,6 +174,17 @@ litmus diff earlier.json later.json --fail-on-regression
 
 `litmus diff` matches cases by their IDs and exits with code 1 for a pass-to-fail regression when this flag is set. Keep case IDs stable between runs.
 
+For run-level gates and history:
+
+```bash
+litmus run -s tests.yaml -a my_agent.py:agent --threshold 0.9 --budget 1.00 --save-baseline --log-dir .litmus/logs
+litmus run -s tests.yaml -a my_agent.py:agent --baseline .litmus/baseline.json --log-dir .litmus/logs
+litmus history --log-dir .litmus/logs --limit 10
+litmus badges
+```
+
+`--threshold` sets the minimum assertion pass rate. `--budget` checks recorded cost after evaluation; it does not stop spending mid-run. `--baseline` flags aggregate pass-rate drops greater than five percentage points, or cost/latency increases greater than 50%. Use matching suites and run counts when comparing totals. Without an explicit threshold, a profile/config threshold, or a baseline, failed assertions alone do not make `litmus run` exit nonzero.
+
 The CLI also writes JSON or Markdown evaluation summaries:
 
 ```bash
@@ -142,7 +196,7 @@ CLI JSON wraps the same versioned payload as `results.save()` in a status envelo
 
 Chat adapters read token counts from provider responses and calculate cost using the bundled pricing table. These are estimates, not billing records: prices can become outdated, and cached tokens or other provider charges may differ. An unrecognized model can report zero cost when no pricing is available.
 
-When comparing models, save the suite, model parameters, run count, raw results, and pricing assumptions. Small example suites do not establish a general model ranking.
+When comparing models, save the suite, model parameters, run count, raw results, and pricing assumptions. The [usage guide](docs/usage.md#cost-and-quality-dimensions) covers custom pricing, `CostTracker`, `CostGuard`, and the seven scoring dimensions available through `--dimensions` and `DimensionBudget`.
 
 ## Conversations
 
@@ -165,7 +219,7 @@ result = await ConversationRunner(agent).run(case)
 print(result.summary())
 ```
 
-The runner passes conversation history to the agent. Custom functions must accept and use the `history` keyword argument. A failed agent call fails its conversation step, including a step with no assertions. The `is_cascade` flag marks failures after the first failure; it does not establish that an earlier mistake caused a later one. Context maintenance uses phrase matching and can misclassify legitimate clarification requests.
+The runner passes conversation history to the agent. Custom functions must accept and use the `history` keyword argument. Use `agent.conversation()` for an interactive Python session, or `load_multi_turn_suite(path)` and `ConversationRunner.run_suite(cases)` for YAML conversations. Multi-turn suites use the Python runner, not `litmus run`. A failed agent call fails its conversation step, including a step with no assertions. The `is_cascade` flag marks failures after the first failure; it does not establish that an earlier mistake caused a later one. Context maintenance uses phrase matching and can misclassify legitimate clarification requests.
 
 ## Safety and memory poisoning
 
@@ -182,6 +236,8 @@ print(safety.verdict, poisoning.verdict)
 
 Safety scans use attack prompts and response patterns. Memory scans inject instructions or false facts into earlier turns and check later responses. The depth setting selects a subset of the attack library. These scores describe the selected checks; they do not prove that an agent is safe or resistant to other attacks.
 
+Memory-poisoning scans are available through the Python API and need a history-aware agent. `litmus scan` runs the safety scanner; use `--categories prompt_injection,jailbreak` to select attack categories and `--output safety.json` to save findings.
+
 Failed agent calls retain their error details and count as failed checks. If any finding contains an agent error, the scan verdict is `INCONCLUSIVE`; `safety.is_safe` and `poisoning.is_resistant` are false. Pipeline summaries preserve this verdict. The CLI flag below exits with code 1 for an unsafe or inconclusive safety scan:
 
 ```bash
@@ -190,7 +246,7 @@ litmus scan --agent my_agent.py:agent --level thorough --fail-on-unsafe
 
 ## Ground truth
 
-Define an expected answer and record its source:
+Define an expected answer and record its source. Save this as `science.yaml`:
 
 ```yaml
 name: science
@@ -206,6 +262,13 @@ cases:
 ```
 
 The loader generates assertions from the answer type. Explicit assertions take precedence. Provenance fields record what you supply; LitmusAI does not independently verify the answer.
+
+```bash
+litmus validate-ground-truth science.yaml
+litmus ground-truth-stats --suite science.yaml --ground-truth science.yaml
+```
+
+Ground truth can also live in a separate file with the same case IDs. Load it with `load_ground_truth()` and attach it using `apply_ground_truth()`. Supported answer types are text, numeric, JSON, boolean, list, and subjective; subjective checks use an LLM grader.
 
 ## Pipelines and profiles
 
@@ -237,7 +300,9 @@ profile = get_profile("thorough")
 result = await Pipeline(agent, "coding", **profile.to_kwargs()).run()
 ```
 
-With multiple runs, CLI summaries, threshold checks, and budget checks currently use the last run. `Pipeline` uses the first run for its primary evaluation and threshold. Use one run for CI gates that need these values to describe the entire evaluation; repeated-run statistics do not yet drive aggregate gates or budgets.
+With multiple runs, CLI summaries, threshold checks, and budget checks pool all repetitions. `PipelineResult.eval`, pipeline thresholds, and generated reports also use pooled results. Pipeline case-level baseline diffs compare repetition 1 on each side; `PipelineResult.passed` reflects the threshold and optional safety verdict, so inspect `baseline_diff.regressions` separately when using a pipeline baseline as a gate.
+
+Custom profiles live in `.litmus/profiles/`. See [configuration, retries, and tracing](docs/usage.md#configuration-and-profiles) for examples and the settings each entry point actually applies.
 
 ## GitHub Actions
 
@@ -280,6 +345,24 @@ To enable comments on pull requests with write access, set `post-comment: "true"
 
 `litmus suites` lists `coding`, `research`, `safety`, `planning`, `customer_support`, `summarization`, `instruction_following`, and `tool_use`. Use these as examples, then add cases and assertions for your own application.
 
+## CLI reference
+
+Run `litmus --help` or `litmus <command> --help` for available options.
+
+| Command | Purpose |
+|---|---|
+| `init` | Write starter configuration and a YAML suite |
+| `run` | Evaluate, repeat runs, apply gates, save results or a baseline |
+| `suites`, `profiles` | List built-in suites and available evaluation presets |
+| `report` | Render saved results as HTML, JUnit XML, CSV, or Markdown |
+| `diff` | Compare individual cases in two saved evaluations |
+| `history` | List saved evaluations from a log directory |
+| `scan` | Run heuristic safety checks |
+| `validate-ground-truth`, `ground-truth-stats` | Check answer files and label coverage |
+| `badges` | Print a pass-rate badge from `.litmus/baseline.json` |
+
+`dashboard` and `create-test` are placeholders: the former prints report guidance; the latter only prints a message and does not save a test. Use HTML reports and edit YAML suites directly. The OpenAI Agents SDK adapter needs compatibility work; use a tested function wrapper as described in [adapters](docs/adapters.md#6-openai-agents-sdk-from_openai_agent).
+
 ## Development
 
 CI tests Python 3.10, 3.11, and 3.12 on Linux, plus Python 3.12 on Windows. It also runs lint, strict type checking, and source and wheel package builds.
@@ -295,4 +378,4 @@ mypy src/litmusai/ --ignore-missing-imports
 
 Provider integration tests are skipped when their credentials are absent. New PR titles and commit messages must use plain text without emojis; existing Git history is preserved.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the review process and [the project review](docs/project-review.md) for remaining work on multi-run gates, result formats, and adapter configuration. Licensed under [MIT](LICENSE).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the review process and [feature validation](docs/feature-validation.md) for the tested workflows and remaining limits. The [earlier project review](docs/project-review.md) records historical findings, some of which have since been fixed. Licensed under [MIT](LICENSE).

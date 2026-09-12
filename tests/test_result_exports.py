@@ -12,6 +12,31 @@ from litmusai.cli.main import cli
 from litmusai.core.agent import AgentResponse
 
 
+def test_markdown_baseline_export_uses_utf8(tmp_path, monkeypatch):
+    agent = Agent.from_function(lambda _: "hello", name="export-agent")
+    monkeypatch.setattr("litmusai.ci.load_agent", lambda _: agent)
+    suite = tmp_path / "suite.yaml"
+    suite.write_text(json.dumps({"name": "日本語", "cases": [
+        {"id": "greeting", "task": "hello", "expected_contains": ["hello"]},
+    ]}), encoding="utf-8")
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps({"summary": {
+        "pass_rate": 1.0, "total_cost": 0.0, "avg_latency_ms": 0.0,
+    }}), encoding="utf-8")
+    output = tmp_path / "report.md"
+
+    result = CliRunner().invoke(cli, [
+        "run", "-s", str(suite), "-a", "test:agent", "--format", "markdown",
+        "--baseline", str(baseline), "--output", str(output),
+    ])
+
+    assert result.exit_code == 0, result.output
+    markdown = output.read_text(encoding="utf-8")
+    assert "日本語" in markdown
+    assert "→ (no change)" in markdown
+    assert "vs Baseline" in markdown
+
+
 @pytest.mark.parametrize("runs", [1, 2])
 def test_cli_json_and_logs_preserve_payload(tmp_path, monkeypatch, runs):
     response = "[bold]literal[/bold] " + "café " * 160

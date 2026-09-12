@@ -556,7 +556,8 @@ async def run_evaluation(
         else:
             Path(output_path).write_text(
                 format_report(data, baseline, fmt="markdown",
-                              threshold=effective_threshold)
+                              threshold=effective_threshold),
+                encoding="utf-8",
             )
         diagnostics.print(f"Results saved to {output_path}")
 

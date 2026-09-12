@@ -258,6 +258,44 @@ class TestCLIAdapter:
 
 
 class TestHTTPAdapter:
+    async def test_from_url_request_and_response(self, httpx_mock):
+        import json
+
+        httpx_mock.add_response(
+            url="https://agent.example/evaluate",
+            method="POST",
+            json={
+                "reply": "The answer is 4",
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                "cost": 0.002,
+                "model": "local-model",
+                "tool_calls": [{"name": "calculator", "arguments": {"expression": "2+2"}}],
+            },
+        )
+        agent = Agent.from_url(
+            "https://agent.example/evaluate",
+            headers={"Authorization": "Bearer test-token"},
+            request_field="prompt",
+            response_field="reply",
+        )
+        history = [{"role": "user", "content": "Remember this"}]
+        response = await agent.run("What is 2+2?", history=history)
+        request = httpx_mock.get_request()
+        assert json.loads(request.content) == {"prompt": "What is 2+2?", "history": history}
+        assert request.headers["Authorization"] == "Bearer test-token"
+        assert response.success
+        assert response.output == "The answer is 4"
+        assert (response.input_tokens, response.output_tokens, response.total_tokens) == (10, 5, 15)
+        assert response.cost == 0.002
+        assert response.model == "local-model"
+        assert response.tool_calls[0].name == "calculator"
+
+    async def test_from_url_http_failure_remains_failed(self, httpx_mock):
+        httpx_mock.add_response(url="https://agent.example/evaluate", status_code=503)
+        response = await Agent.from_url("https://agent.example/evaluate").run("hello")
+        assert not response.success
+        assert "503" in response.error
+
     def test_from_url_creation(self):
         agent = Agent.from_url(
             "http://localhost:8000/agent",

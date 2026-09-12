@@ -7,11 +7,13 @@ Adapters normalize supported agent responses to `AgentResponse`. Check which met
 | Adapter | Use Case | Example |
 |---------|----------|---------|
 | `from_function` | Simple Python function | `Agent.from_function(my_fn)` |
+| `from_openai_chat` | OpenAI-compatible chat completions | `Agent.from_openai_chat(model="gpt-4.1", api_key=key)` |
+| `from_azure` | Azure OpenAI deployment | `Agent.from_azure(resource="my-resource", deployment="my-deployment", api_key=key)` |
 | `from_url` | HTTP/REST endpoint | `Agent.from_url("http://...")` |
 | `from_cli` | CLI subprocess | `Agent.from_cli("python agent.py")` |
 | `from_langchain` | LangChain agent/chain | `Agent.from_langchain(lc_agent)` |
 | `from_crewai` | CrewAI crew | `Agent.from_crewai(crew)` |
-| `from_openai_agent` | OpenAI Agents SDK | `Agent.from_openai_agent(oai)` |
+| `from_openai_agent` | Needs SDK compatibility work | Use a tested `from_function` wrapper; see below |
 | `from_callable` | Any object with a method | `Agent.from_callable(obj)` |
 
 ## AgentResponse
@@ -41,6 +43,29 @@ class AgentResponse:
 ```
 
 ## Adapters in Detail
+
+### Chat completions and Azure
+
+Both adapters use `httpx` from the base installation; the OpenAI Python SDK is not required.
+
+```python
+import os
+from litmusai import Agent
+
+agent = Agent.from_openai_chat(
+    model="gpt-4.1",
+    api_key=os.environ["OPENAI_API_KEY"],
+    system_prompt="Answer concisely.",
+    temperature=0.0,
+    timeout=60,
+)
+```
+
+For a compatible local server or proxy, supply its `base_url` and model name. API keys and URLs must be passed explicitly to `from_openai_chat`; it does not read `configure()` or environment variables itself. This adapter targets chat completions, so provider-specific request parameters must be supported by your endpoint. Use `extra_headers` and `extra_body` for endpoint options.
+
+For Azure, use `Agent.from_azure(resource=..., deployment=..., api_key=...)`. It builds the deployment URL and uses the `api-key` header. Its key resolution is explicit argument, then `AZURE_OPENAI_API_KEY`, then global configuration. Set `api_version` to a version supported by your deployment.
+
+Both adapters accept conversation history, parse provider token usage and tool calls, and estimate cost using registered model pricing. A custom Azure deployment name may need `register_pricing()`. The adapters capture returned tool-call metadata; they do not execute tools on your behalf.
 
 ### 1. Simple Function (`from_function`)
 
@@ -103,6 +128,8 @@ agent = Agent.from_cli(
 
 ### 4. LangChain (`from_langchain`)
 
+Install the dependencies your chain needs, or use `pip install "litmuseval[langchain]"`. The adapter accepts objects exposing `ainvoke()` or `invoke()`. Framework tests use stand-ins; compatibility with every framework release is not established.
+
 ```python
 from langchain.agents import AgentExecutor
 from litmusai import Agent
@@ -117,6 +144,8 @@ agent = Agent.from_langchain(lc_agent, name="langchain-agent")
 ```
 
 ### 5. CrewAI (`from_crewai`)
+
+Install `crewai` separately; there is no CrewAI package extra. The adapter expects a crew exposing `kickoff()`.
 
 ```python
 from crewai import Crew
