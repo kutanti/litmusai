@@ -74,7 +74,7 @@ def init() -> None:
 @cli.command()
 @click.option(
     "--suite", "-s", required=True,
-    help="Test suite name or YAML path",
+    help="Test suite name or YAML/JSON dataset path",
 )
 @click.option(
     "--agent", "-a", required=True,

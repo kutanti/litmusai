@@ -73,7 +73,7 @@ async def test_full_prediction_metrics_are_independent_of_assertions(tmp_path):
     assert results.pass_rate == 0
     assert results.metrics["accuracy"]["value"] == 1
     data = load_results(results.save(tmp_path / "results.json"))
-    assert len(data["results"][0]["response"]) == 2000
+    assert data["results"][0]["response"] == output
     record = Observation.model_validate(data["results"][0]["observation"])
     assert record.predicted == "a"
     assert data["metrics"] == aggregate_metrics([record], MetricConfig.model_validate(

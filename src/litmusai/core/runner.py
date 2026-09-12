@@ -29,6 +29,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from litmusai.core.agent import Agent, AgentResponse
 from litmusai.core.scorer import Scorer, ScoreResult
 from litmusai.core.suite import TestCase, TestSuite
+from litmusai.datasets import DatasetInfo, snapshot_json
 from litmusai.metrics import aggregate_metrics, classification_observation, extraction_observation
 from litmusai.metrics.schema import SCHEMA_VERSION, MetricConfig, Observation
 from litmusai.scoring import (
@@ -67,13 +68,19 @@ class TestResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary for JSON logging."""
+        case_data = self.case.to_dict(include_assertions=False)
         d = {
             "case_id": self.case.id,
             "evaluation_id": self.evaluation_id,
             "repetition": self.repetition if self.repetition is not None else 1,
             "case_name": self.case.name,
             "task": self.case.task,
-            "response": self.response.output[:2000],
+            "response": self.response.output,
+            **{key: case_data.get(key) for key in (
+                "inputs", "metadata", "source", "ground_truth", "expected",
+                "expected_contains", "expected_not_contains", "tags",
+            )},
+            "response_metadata": snapshot_json(self.response.metadata, "response metadata"),
             "passed": self.passed,
             "score": self.score.score,
             "score_reason": self.score.reason,
@@ -109,6 +116,7 @@ class EvalResults:
     evaluation_id: str = field(default_factory=lambda: uuid4().hex)
     repetition: int | None = 1
     metric_config: MetricConfig | None = None
+    dataset: DatasetInfo | None = None
 
     @property
     def metrics(self) -> dict[str, Any] | None:
@@ -221,7 +229,7 @@ class EvalResults:
             "agent_name": self.agent_name,
             "suite_name": self.suite_name,
             "timestamp": self.timestamp,
-            "config": self.config,
+            "config": snapshot_json(self.config, "evaluation configuration"),
             "summary": {
                 "total": len(self.results),
                 "passed": self.passed,
@@ -235,6 +243,8 @@ class EvalResults:
             },
             "results": [r.to_dict() for r in self._identified_results()],
         }
+        if self.dataset is not None:
+            d["dataset"] = self.dataset.model_dump(mode="json")
         avg_dim = self.avg_dimensions
         if avg_dim:
             d["dimensions"] = avg_dim.to_dict()
@@ -341,6 +351,9 @@ class MultiRunResults:
         config = self.run_results[0].metric_config if self.run_results else None
         if any(run.metric_config != config for run in self.run_results):
             raise ValueError("cannot combine runs with different metric configurations")
+        dataset = self.run_results[0].dataset if self.run_results else None
+        if any(run.dataset != dataset for run in self.run_results):
+            raise ValueError("cannot combine runs from different dataset revisions or content")
         results: list[TestResult] = []
         repetitions: set[int] = set()
         for run in self.run_results:
@@ -359,6 +372,7 @@ class MultiRunResults:
             total_output_tokens=sum(run.total_output_tokens for run in self.run_results),
             timestamp=self.timestamp, evaluation_id=self.evaluation_id, repetition=None,
             metric_config=config, config=self.run_results[0].config if self.run_results else {},
+            dataset=dataset.model_copy(deep=True) if dataset else None,
         )
 
     @property
@@ -509,6 +523,7 @@ async def multi_evaluate(
         msg = f"runs must be >= 1, got {runs}"
         raise ValueError(msg)
 
+    suite = suite.snapshot()
     all_runs: list[EvalResults] = []
     evaluation_id = uuid4().hex
 
@@ -599,7 +614,7 @@ async def evaluate(
         raise ValueError("evaluation_id must not be empty")
     if concurrency < 1:
         raise ValueError("concurrency must be >= 1")
-    suite.validate_metrics()
+    suite = suite.snapshot()
     metric_config = suite.metrics.model_copy(deep=True) if suite.metrics is not None else None
 
     scorer = scorer or Scorer()
@@ -608,7 +623,8 @@ async def evaluate(
     config: dict[str, Any] = {
         "concurrency": concurrency,
         "model": agent.model,
-        "model_params": dict(agent.model_params),  # defensive copy
+        "model_params": snapshot_json(agent.model_params, "model parameters"),
+        "agent_metadata": snapshot_json(agent.metadata, "agent metadata"),
     }
 
     results = EvalResults(
@@ -619,6 +635,7 @@ async def evaluate(
         evaluation_id=evaluation_id or uuid4().hex,
         repetition=repetition,
         metric_config=metric_config,
+        dataset=suite.dataset_info,
     )
 
     semaphore = asyncio.Semaphore(concurrency)
@@ -626,7 +643,12 @@ async def evaluate(
 
     async def run_case(case: TestCase) -> TestResult:
         async with semaphore:
-            response = await agent.run(case.task)
+            if case.inputs is None:
+                response = await agent.run(case.task)
+            else:
+                response = await agent.run(case.task, inputs=snapshot_json(case.inputs, "inputs"))
+            response = replace(response, metadata=snapshot_json(response.metadata,
+                                                                "response metadata"))
             observation = None
             if metric_config is not None:
                 observe = (classification_observation

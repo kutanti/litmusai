@@ -450,8 +450,8 @@ class TestAsyncScoring:
         assert results.total_input_tokens == 100
 
     @pytest.mark.asyncio
-    async def test_yaml_excludes_assertions(self, tmp_path):
-        """to_yaml skips non-serializable assertions field."""
+    async def test_yaml_preserves_declarative_assertions(self, tmp_path):
+        """Exporting a dataset preserves the checks that give its labels meaning."""
         suite = TestSuite(name="yaml-test")
         suite.add_case(TestCase(
             id="t1", name="test", task="test",
@@ -463,5 +463,6 @@ class TestAsyncScoring:
         loaded = TestSuite.from_yaml(path)
         assert len(loaded.cases) == 1
         assert loaded.cases[0].task == "test"
-        # Assertions are not in the serialized YAML.
-        assert loaded.cases[0].assertions == []
+        assert len(loaded.cases[0].assertions) == 1
+        assert loaded.cases[0].assertions[0].check("36").passed
+        assert not loaded.cases[0].assertions[0].check("42").passed

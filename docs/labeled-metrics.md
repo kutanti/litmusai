@@ -105,10 +105,9 @@ fails. Other valid JSON responses also pass because there are no content
 constraints; alternatives do not add a constraint in this case. Use explicit
 assertions or labeled extraction metrics when content equality matters.
 
-This contract is the prerequisite for labeled metrics in issue #100. Dataset
-revisions, content fingerprints, external dataset identities, migration of older
-CLI result files, and a complete dataset/result interchange format remain in
-issue #99.
+The [dataset contract](datasets.md) adds dataset identities, revisions, content
+fingerprints, structured inputs, and source references. Existing Python and CLI
+result files remain readable; absent identities cannot be reconstructed.
 
 ## Classification rules
 
@@ -235,7 +234,8 @@ CLI JSON files retain the outer status envelope (`results`, `success`,
 `has_regression`); the inner `results` is the same versioned payload returned by
 the Python API. Canonical names are `agent_name`, `suite_name`, `case_name`,
 `score_reason`, and `response` in place of the earlier CLI aliases. The response
-preview remains truncated; the metric observation's selected values are complete.
+preview in HTML remains truncated; saved JSON, CSV, and JUnit system output retain
+the full response. The metric observation's selected values are also complete.
 `load_results()` reads both Python files and CLI envelopes and rejects unsupported
 explicit versions. It does not invent case IDs for older CLI files.
 With `--format json`, stdout contains one JSON document; progress messages,

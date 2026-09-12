@@ -300,9 +300,11 @@ profile = get_profile("thorough")
 result = await Pipeline(agent, "coding", **profile.to_kwargs()).run()
 ```
 
-With multiple runs, CLI summaries, threshold checks, and budget checks pool all repetitions. `PipelineResult.eval`, pipeline thresholds, and generated reports also use pooled results. Pipeline case-level baseline diffs compare repetition 1 on each side; `PipelineResult.passed` reflects the threshold and optional safety verdict, so inspect `baseline_diff.regressions` separately when using a pipeline baseline as a gate.
+With multiple runs, CLI summaries, threshold checks, and budget checks pool all repetitions. `PipelineResult.eval`, pipeline thresholds, and generated reports also use pooled results. Pipeline case-level baseline diffs compare repetition 1 on each side; `PipelineResult.passed` reflects the threshold and optional safety verdict, so inspect `baseline_diff.regressions` separately when using a pipeline baseline as a gate. Precision, recall, and F1 are informational until named metric gates are implemented.
 
 Custom profiles live in `.litmus/profiles/`. See [configuration, retries, and tracing](docs/usage.md#configuration-and-profiles) for examples and the settings each entry point actually applies.
+
+Datasets can retain an ID, revision, content fingerprint, structured inputs, and source example/trace IDs. These fields survive Python and CLI evaluation, saved JSON, and report export. See the [dataset contract and local example](docs/datasets.md).
 
 ## GitHub Actions
 

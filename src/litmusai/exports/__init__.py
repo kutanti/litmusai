@@ -12,6 +12,7 @@ Usage::
 
 from __future__ import annotations
 
+import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -69,6 +70,9 @@ def to_junit_xml(
         prop = ET.SubElement(props, "property")
         prop.set("name", key)
         prop.set("value", value)
+    if data.get("dataset"):
+        ET.SubElement(props, "property", name="dataset", value=json.dumps(
+            data["dataset"], ensure_ascii=False))
 
     # Test cases
     for r in results:
@@ -87,6 +91,9 @@ def to_junit_xml(
 
         identities = {key: r[key] for key in ("evaluation_id", "case_id", "repetition")
                       if r.get(key) is not None}
+        for key in ("inputs", "metadata", "source", "ground_truth", "response_metadata"):
+            if r.get(key) is not None:
+                identities[key] = json.dumps(r[key], ensure_ascii=False)
         if identities:
             case_props = ET.SubElement(tc, "properties")
             for key, value in identities.items():
@@ -106,7 +113,7 @@ def to_junit_xml(
 
         # System output — include response for all cases
         stdout = ET.SubElement(tc, "system-out")
-        stdout.text = str(r.get("response", ""))[:2000]
+        stdout.text = str(r.get("response", ""))
 
     # Write with proper XML declaration
     tree = ET.ElementTree(testsuites)
@@ -146,16 +153,28 @@ def to_csv(
         "score_reason", "latency_ms", "cost",
         "input_tokens", "output_tokens", "model",
         "response", "evaluation_id", "repetition",
+        "dataset_id", "dataset_revision", "dataset_fingerprint", "dataset_metadata",
+        "dataset_source",
+        "inputs", "metadata", "source", "ground_truth", "response_metadata",
     ]
 
     with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for r in results:
-            writer.writerow({
-                k: (str(r.get(k, "")) if k in ("evaluation_id", "case_id", "repetition")
-                    else str(r.get(k, ""))[:500])
-                for k in fieldnames
-            })
+            row = {k: r.get(k, "") for k in fieldnames}
+            dataset = data.get("dataset") or {}
+            for key in ("id", "revision", "fingerprint"):
+                row[f"dataset_{key}"] = dataset.get(key) or ""
+            row["dataset_metadata"] = (
+                json.dumps(dataset.get("metadata", {}), ensure_ascii=False) if dataset else ""
+            )
+            row["dataset_source"] = (
+                json.dumps(dataset["source"], ensure_ascii=False)
+                if dataset.get("source") is not None else ""
+            )
+            for key in ("inputs", "metadata", "source", "ground_truth", "response_metadata"):
+                row[key] = json.dumps(r[key], ensure_ascii=False) if r.get(key) is not None else ""
+            writer.writerow(row)
 
     return output_path
