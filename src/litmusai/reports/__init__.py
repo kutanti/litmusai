@@ -17,6 +17,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from litmusai.results import normalize_results
+
 
 def _esc(text: str) -> str:
     """HTML-escape text content."""
@@ -428,8 +430,10 @@ def _make_row(idx: int, r: dict[str, Any]) -> str:
     latency = r.get("latency_ms", 0)
     cost = r.get("cost", 0)
     case_id = r.get("case_id", f"case_{idx}")
-    safe_id = _safe_id(case_id)
+    safe_id = f"{_safe_id(case_id)}-{idx}"
     case_name = _esc(r.get("case_name", case_id))
+    if r.get("repetition"):
+        case_name += f" (run {_esc(str(r['repetition']))})"
     reason = _esc(r.get("score_reason", ""))
     response = _esc(str(r.get("response", ""))[:500])
     task = _esc(str(r.get("task", ""))[:200])
@@ -468,12 +472,13 @@ def render_html(
     """Render evaluation results as a self-contained HTML report.
 
     Args:
-        data: Result dict from ``EvalResults.to_dict()``.
+        data: Result dict from ``EvalResults.to_dict()`` or a CLI status envelope.
         output_path: Where to write the HTML file.
 
     Returns:
         Path to the generated HTML file.
     """
+    data = normalize_results(data)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
