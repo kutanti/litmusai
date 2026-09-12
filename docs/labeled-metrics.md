@@ -109,3 +109,35 @@ This contract is the prerequisite for labeled metrics in issue #100. Dataset
 revisions, content fingerprints, external dataset identities, migration of older
 CLI result files, and a complete dataset/result interchange format remain in
 issue #99.
+
+## Classification rules
+
+Classification is single-label. Labels are explicit, unique, nonempty strings.
+The expected value must be a declared label. Responses match exactly; extra
+whitespace or different case is a different label. For JSON responses, configure
+`prediction_field` (use `""` for a JSON string at the root).
+
+Each correct prediction adds one true positive (TP). A wrong declared label adds
+a false positive (FP) to the predicted class and a false negative (FN) to the
+expected class. Missing labels, unknown labels, invalid JSON, and execution
+failures add an FN to the expected class. They appear in the confusion matrix's
+final column, whose predicted label is `null`; they do not invent another class.
+Raw invalid values and errors remain in the observation.
+
+Precision is `TP / (TP + FP)`, recall is `TP / (TP + FN)`, and F1 is
+`2*TP / (2*TP + FP + FN)`. A zero denominator returns `value: 0` and
+`defined: false`. Accuracy includes every attempted case. Prediction coverage,
+invalid prediction counts, and execution error counts accompany the scores.
+Precision can remain high when an agent abstains; use coverage and recall too.
+
+Micro averages sum class counts before division. Macro averages include every
+declared label equally, including classes absent from the dataset. Weighted
+averages weight each class by its expected support. Undefined class values
+contribute zero; averages list the contributing `undefined_labels` and set
+`defined: false` if any contributing class is undefined. An empty observation
+list returns no aggregate (`None`).
+
+For offline use, `classification_observation(...)` parses and scores one full
+response, and `classification_metrics(observations, config)` recomputes all
+counts from observations. Repetitions are pooled before division. Duplicate
+observation identities and mixed task types are rejected.
