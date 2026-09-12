@@ -65,6 +65,14 @@ class TestSuite:
         """Add a test case to the suite."""
         self.cases.append(case)
 
+    def validate_case_ids(self) -> None:
+        """Require nonempty, unique string IDs before loading or running a suite."""
+        seen: set[str] = set()
+        for case in self.cases:
+            if not isinstance(case.id, str) or not case.id.strip() or case.id in seen:
+                raise ValueError(f"case IDs must be nonempty and unique: {case.id!r}")
+            seen.add(case.id)
+
     def add(
         self,
         task: str,
@@ -152,18 +160,17 @@ class TestSuite:
                         f"'{case.id}', got {type(raw_ground_truth).__name__}"
                     )
                     raise ValueError(msg)
-                gt = GroundTruth.from_dict(raw_ground_truth)
-                if gt.answer_type != "subjective" and gt.answer is None:
-                    raise ValueError(
-                        f"Case '{case.id}': non-subjective type "
-                        f"'{gt.answer_type}' requires an answer"
-                    )
+                try:
+                    gt = GroundTruth.from_dict(raw_ground_truth)
+                except (ValueError, TypeError) as exc:
+                    raise ValueError(f"Case '{case.id}': {exc}") from exc
                 case.ground_truth = gt
                 if not case.assertions and suite.metrics is None:
                     case.assertions = gt.to_assertions()
                 case.metadata["ground_truth"] = gt.to_dict()
             suite.add_case(case)
 
+        suite.validate_case_ids()
         return suite
 
     def to_yaml(self, path: str | Path) -> None:

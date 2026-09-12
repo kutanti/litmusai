@@ -1,6 +1,8 @@
 """Keep evaluation identities and every repetition across CLI exports."""
 
 import json
+import re
+import xml.etree.ElementTree as ET
 
 import pytest
 from click.testing import CliRunner
@@ -53,6 +55,19 @@ def test_cli_json_and_logs_preserve_payload(tmp_path, monkeypatch, runs):
             assert run["evaluation_id"] == data["evaluation_id"]
             assert run["repetition"] == repetition
             assert run["results"] == [data["results"][repetition - 1]]
+
+    report = CliRunner().invoke(cli, [
+        "report", "-r", str(output), "--html", str(tmp_path / "report.html"),
+        "--junit", str(tmp_path / "report.xml"), "--csv", str(tmp_path / "report.csv"),
+    ])
+    assert report.exit_code == 0, report.output
+    html = (tmp_path / "report.html").read_text(encoding="utf-8")
+    detail_ids = re.findall(r'id="(detail-[^"]+)"', html)
+    targets = re.findall(r"toggleDetail\('([^']+)'\)", html)
+    assert len(set(detail_ids)) == runs
+    assert [f"detail-{target}" for target in targets] == detail_ids
+    assert len(ET.parse(tmp_path / "report.xml").findall(".//testcase")) == runs
+    assert (tmp_path / "report.csv").read_text(encoding="utf-8").count("invoice") == runs
 
 
 @pytest.mark.parametrize("gate,value", [("--threshold", "0.75"), ("--budget", "0.025")])
