@@ -75,6 +75,25 @@ def test_observation_rejects_cycles():
         Observation(evaluation_id="eval", case_id="case", task_type="extraction", expected=value)
 
 
+@pytest.mark.parametrize("field", ["evaluation_id", "case_id"])
+@pytest.mark.parametrize("value", [" ", "\t\r\n", "\u2003"])
+def test_observation_rejects_whitespace_only_ids(field, value):
+    data = {"evaluation_id": "eval", "case_id": "case", "task_type": "extraction",
+            "expected": [], field: value}
+    with pytest.raises(ValidationError, match="non-whitespace"):
+        Observation.model_validate(data)
+    with pytest.raises(ValidationError, match="non-whitespace"):
+        Observation.model_validate_json(json.dumps(data))
+
+
+def test_observation_preserves_valid_ids_verbatim():
+    observation = Observation(evaluation_id=" eval ", case_id=" café ",
+                              task_type="extraction", expected=[])
+    restored = Observation.model_validate_json(observation.model_dump_json())
+    assert restored.evaluation_id == " eval "
+    assert restored.case_id == " café "
+
+
 def test_nested_json_values_round_trip_without_coercion():
     value = {"1": [0, False, None, "", 1.5, {"café": "Zoë"}], "empty": {}}
     original = Observation(evaluation_id="eval", case_id="case", task_type="extraction",

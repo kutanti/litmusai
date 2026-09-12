@@ -6,7 +6,7 @@ import math
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SCHEMA_VERSION: Literal["1.0"] = "1.0"
 
@@ -83,6 +83,14 @@ class Observation(BaseModel):
     status: Literal["ok", "invalid_prediction", "execution_error"] = "ok"
     error: str | None = None
     evidence: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("evaluation_id", "case_id")
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        """Reject blank identities while preserving valid IDs verbatim."""
+        if not value.strip():
+            raise ValueError("observation IDs must contain non-whitespace characters")
+        return value
 
     @model_validator(mode="after")
     def validate_json(self) -> Observation:
