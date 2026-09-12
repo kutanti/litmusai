@@ -214,6 +214,7 @@ footer a {{ color: var(--blue); text-decoration: none; }}
 
 {check_note}
 {metrics_section}
+{dataset_section}
 {dimensions_section}
 
 <h2>Test Results</h2>
@@ -445,6 +446,12 @@ def _make_row(idx: int, r: dict[str, Any]) -> str:
         evidence = "<br><strong>Metric evidence:</strong><pre>" + _esc(
             json.dumps(r["observation"], ensure_ascii=False, indent=2)
         ) + "</pre>"
+    for key, label in (("inputs", "Structured inputs"), ("source", "Source reference"),
+                       ("metadata", "Case metadata")):
+        if r.get(key) is not None:
+            evidence += f"<br><strong>{label}:</strong><pre>" + _esc(
+                json.dumps(r[key], ensure_ascii=False, indent=2)
+            ) + "</pre>"
 
     row = (
         f'<tr class="result-row" data-status="{"pass" if passed else "fail"}" '
@@ -541,6 +548,10 @@ def render_html(
         timestamp=_esc(data.get("timestamp", "")),
         dimensions_section=_build_dimensions_section(data),
         metrics_section=metric_html(data["metrics"]) if data.get("metrics") else "",
+        dataset_section=("<h2>Dataset provenance</h2><pre>" + _esc(
+            json.dumps(data["dataset"], ensure_ascii=False, indent=2)
+        ) + "</pre>" if data.get("dataset") else
+            "<p>Dataset provenance is unavailable in this result.</p>"),
     )
 
     output_path.write_text(html_out, encoding="utf-8")

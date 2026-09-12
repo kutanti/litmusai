@@ -324,6 +324,8 @@ def normalize_results(data: dict[str, Any]) -> dict[str, Any]:
     Canonical fields take precedence, even when empty. Missing stable identities
     stay absent; display names cannot reconstruct them.
     """
+    from litmusai.datasets import DatasetInfo, SourceReference, snapshot_json
+
     if not isinstance(data, dict):
         raise ValueError("result payload must be a mapping")
     if isinstance(data.get("results"), dict):
@@ -333,6 +335,8 @@ def normalize_results(data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(data.get("results", []), list):
         raise ValueError("result rows must be a list")
     normalized = dict(data)
+    if data.get("dataset") is not None:
+        normalized["dataset"] = DatasetInfo.model_validate(data["dataset"]).model_dump(mode="json")
     for legacy, canonical in (("agent", "agent_name"), ("suite", "suite_name")):
         if canonical not in normalized and legacy in data:
             normalized[canonical] = data[legacy]
@@ -342,6 +346,12 @@ def normalize_results(data: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(row, dict):
                 raise ValueError("each result row must be a mapping")
             normalized_row = dict(row)
+            for field in ("inputs", "metadata", "ground_truth", "response_metadata"):
+                if field in row:
+                    normalized_row[field] = snapshot_json(row[field], f"result {field}")
+            if row.get("source") is not None:
+                normalized_row["source"] = SourceReference.model_validate(row["source"]).model_dump(
+                    mode="json")
             for legacy, canonical in (
                 ("test", "case_name"), ("reason", "score_reason"), ("output", "response"),
             ):

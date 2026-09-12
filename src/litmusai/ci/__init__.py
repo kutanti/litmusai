@@ -433,8 +433,9 @@ async def run_evaluation(
     # Load suite — support both names and file paths
     try:
         suite_path = Path(suite)
-        if suite_path.exists() and suite_path.suffix in (".yaml", ".yml"):
-            test_suite = TestSuite.from_yaml(suite_path)
+        if suite_path.exists() and suite_path.suffix in (".yaml", ".yml", ".json"):
+            test_suite = (TestSuite.from_json(suite_path) if suite_path.suffix == ".json"
+                          else TestSuite.from_yaml(suite_path))
         else:
             test_suite = TestSuite.load(suite)
         test_suite.validate_metrics()

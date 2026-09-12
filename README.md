@@ -237,7 +237,9 @@ profile = get_profile("thorough")
 result = await Pipeline(agent, "coding", **profile.to_kwargs()).run()
 ```
 
-With multiple runs, CLI summaries, threshold checks, and budget checks currently use the last run. `Pipeline` uses the first run for its primary evaluation and threshold. Use one run for CI gates that need these values to describe the entire evaluation; repeated-run statistics do not yet drive aggregate gates or budgets.
+With multiple runs, CLI and pipeline summaries and assertion thresholds use all case executions. CLI budget checks use the total estimated cost across runs. Pipeline case-level baseline diffs compare repetition 1; reports still include all repetitions. Precision, recall, and F1 are informational until named metric gates are implemented.
+
+Datasets can retain an ID, revision, content fingerprint, structured inputs, and source example/trace IDs. These fields survive Python and CLI evaluation, saved JSON, and report export. See the [dataset contract and local example](docs/datasets.md).
 
 ## GitHub Actions
 

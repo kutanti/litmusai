@@ -158,7 +158,8 @@ class Agent:
             task: The task/prompt to send to the agent.
             **kwargs: Additional arguments passed to the agent function.
                 Includes ``history`` (list of message dicts) for
-                multi-turn conversations.
+                multi-turn conversations. Evaluations of structured cases pass
+                their mapping as ``inputs``; the function must accept that keyword.
 
         Returns:
             AgentResponse with normalized output, cost, latency, etc.

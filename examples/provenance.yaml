@@ -1,0 +1,40 @@
+schema_version: "1.0"
+name: structured-routing
+description: Local cases with structured inputs and explicit source references
+dataset:
+  id: structured-routing
+  revision: example-v1
+  source:
+    provider: local
+  metadata:
+    split: test
+metrics:
+  task_type: classification
+  labels: [billing, technical]
+cases:
+  - id: billing-1
+    task: Route the support request
+    inputs:
+      text: Please refund my purchase
+      account:
+        active: false
+        balance: 0
+    ground_truth:
+      answer: billing
+    source:
+      provider: local
+      example_id: billing-1
+    metadata:
+      category: refunds
+  - id: technical-1
+    task: Route the support request
+    inputs:
+      text: My connection stopped working
+      account:
+        active: true
+        balance: 0
+    ground_truth:
+      answer: technical
+    source:
+      provider: local
+      example_id: technical-1
