@@ -73,9 +73,24 @@ def to_junit_xml(
     # Test cases
     for r in results:
         tc = ET.SubElement(testsuite, "testcase")
-        tc.set("name", r.get("case_name", r.get("case_id", "?")))
+        name = r.get("case_name", r.get("case_id", "?"))
+        identity = []
+        if r.get("case_id") is not None:
+            identity.append(f"case_id={r['case_id']}")
+        if r.get("repetition") is not None:
+            identity.append(f"run {r['repetition']}")
+        if identity:
+            name = f"{name} [{'; '.join(identity)}]"
+        tc.set("name", name)
         tc.set("classname", f"{agent_name}.{suite_name}")
         tc.set("time", f"{r.get('latency_ms', 0) / 1000:.3f}")
+
+        identities = {key: r[key] for key in ("evaluation_id", "case_id", "repetition")
+                      if r.get(key) is not None}
+        if identities:
+            case_props = ET.SubElement(tc, "properties")
+            for key, value in identities.items():
+                ET.SubElement(case_props, "property", name=key, value=str(value))
 
         if not r.get("passed", True):
             failure = ET.SubElement(tc, "failure")
@@ -130,7 +145,7 @@ def to_csv(
         "case_id", "case_name", "task", "passed", "score",
         "score_reason", "latency_ms", "cost",
         "input_tokens", "output_tokens", "model",
-        "response",
+        "response", "evaluation_id", "repetition",
     ]
 
     with open(output_path, "w", newline="", encoding="utf-8") as f:
@@ -138,7 +153,8 @@ def to_csv(
         writer.writeheader()
         for r in results:
             writer.writerow({
-                k: str(r.get(k, ""))[:500]
+                k: (str(r.get(k, "")) if k in ("evaluation_id", "case_id", "repetition")
+                    else str(r.get(k, ""))[:500])
                 for k in fieldnames
             })
 
