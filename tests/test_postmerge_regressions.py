@@ -141,3 +141,35 @@ def test_json_loading_failures_return_json_and_stderr_diagnostics(tmp_path, monk
     assert result.exit_code == 1
     assert payload["success"] is False and payload["error"]
     assert f"Error loading {invalid}" in result.stderr
+
+
+@pytest.mark.parametrize("module_source", [
+    'raise RuntimeError("agent startup failed")',
+    'raise PermissionError("agent configuration is unreadable")',
+    'def broken(',
+])
+@pytest.mark.parametrize("load_by", ["file", "module"])
+def test_json_agent_import_failures_return_json(tmp_path, monkeypatch, module_source, load_by):
+    module = tmp_path / "broken_agent.py"
+    module.write_text(module_source, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    agent_path = f"{module}:agent" if load_by == "file" else "broken_agent:agent"
+
+    result = CliRunner().invoke(cli, [
+        "run", "-s", "coding", "-a", agent_path, "--format", "json",
+    ])
+
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 1
+    assert payload["success"] is False and payload["error"]
+    assert "Error loading agent" in result.stderr
+
+
+@pytest.mark.parametrize("exception", [KeyboardInterrupt, SystemExit])
+async def test_agent_loading_preserves_process_control_exceptions(monkeypatch, capsys, exception):
+    from litmusai.ci import run_evaluation
+
+    monkeypatch.setattr("litmusai.ci.load_agent", Mock(side_effect=exception))
+    with pytest.raises(exception):
+        await run_evaluation("coding", "local:agent", fmt="json")
+    assert capsys.readouterr().out == ""

@@ -423,7 +423,7 @@ async def run_evaluation(
     # Load agent
     try:
         agent = load_agent(agent_path)
-    except (ValueError, FileNotFoundError, ImportError, AttributeError, TypeError) as e:
+    except Exception as e:
         diagnostics.print(f"[red]Error loading agent: {e}[/red]")
         failure = {"success": False, "error": str(e)}
         if fmt == "json":

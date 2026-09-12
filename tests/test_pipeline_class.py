@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import csv
+import json
 from pathlib import Path
 
 import pytest
 
-from litmusai import Pipeline, PipelineResult, run_pipeline
+from litmusai import GroundTruth, MetricConfig, Pipeline, PipelineResult, run_pipeline
 from litmusai.core.agent import Agent, AgentResponse
 from litmusai.core.runner import EvalResults, MultiRunResults
 from litmusai.core.suite import TestCase, TestSuite
@@ -149,7 +151,7 @@ class TestPipelineRun:
         assert result.multi_run is not None
         assert isinstance(result.multi_run, MultiRunResults)
         assert result.multi_run.n_runs == 3
-        assert result.eval is not None  # first run
+        assert len(result.eval.results) == 3 * len(suite)
 
     @pytest.mark.asyncio
     async def test_with_safety(self):
@@ -258,6 +260,89 @@ class TestPipelineRun:
         r2 = await p2.run()
 
         assert r2.baseline_diff is not None
+
+    @pytest.mark.parametrize("runs", [1, 3])
+    @pytest.mark.parametrize(("baseline_runs", "saved_as"), [
+        (1, "log"), (1, "legacy"), (2, "log"), (2, "envelope"), (2, "pooled"),
+    ])
+    async def test_baseline_uses_first_repetition_and_preserves_pooled_outputs(
+        self, tmp_path, runs, baseline_runs, saved_as,
+    ):
+        suite = TestSuite("classification", [TestCase(
+            id="answer", task="answer", expected_contains=["42"],
+            ground_truth=GroundTruth(answer="42"),
+        )], metrics=MetricConfig(task_type="classification", labels=["42", "wrong"]))
+        baseline_outputs = iter(["42", "wrong"])
+        baseline = await Pipeline(
+            Agent.from_function(lambda _: next(baseline_outputs)), suite,
+            runs=baseline_runs, log_dir=tmp_path / "baseline", verbose=False,
+        ).run()
+        baseline_path = next((tmp_path / "baseline").glob("*.json"))
+        if saved_as == "pooled":
+            baseline.eval.save(baseline_path)
+        elif saved_as == "envelope":
+            data = json.loads(baseline_path.read_text(encoding="utf-8"))
+            # Reordering serialized runs must not change the selected repetition.
+            data["run_results"].reverse()
+            baseline_path.write_text(json.dumps({"success": True, "results": data}),
+                                     encoding="utf-8")
+        elif saved_as == "legacy":
+            data = json.loads(baseline_path.read_text(encoding="utf-8"))
+            data.pop("repetition")
+            for row in data["results"]:
+                row.pop("repetition")
+            baseline_path.write_text(json.dumps(data), encoding="utf-8")
+        saved_baseline = baseline_path.read_bytes()
+
+        current_outputs = iter(["wrong", "42", "42"])
+        report_path = tmp_path / "results.csv"
+        result = await Pipeline(
+            Agent.from_function(lambda _: next(current_outputs)), suite, runs=runs,
+            baseline=baseline_path, report="csv", report_path=str(report_path),
+            log_dir=tmp_path / "current", verbose=False,
+        ).run()
+
+        diff = result.baseline_diff
+        assert len(diff.cases) == 1
+        assert diff.cases[0].case_id == "answer"
+        assert diff.cases[0].baseline_passed is True
+        assert diff.cases[0].current_passed is False
+        assert len(diff.regressions) == 1
+        # Later runs improve: the case diff still compares run 1, while metrics,
+        # thresholds, logs and reports include every repetition.
+        assert len(result.eval.results) == runs
+        assert result.eval.pass_rate == pytest.approx((runs - 1) / runs)
+        assert result.eval.metrics["accuracy"]["value"] == pytest.approx((runs - 1) / runs)
+        assert result.passed is (runs > 1)
+        saved = json.loads(next((tmp_path / "current").glob("*.json")).read_text(
+            encoding="utf-8"))
+        assert len(saved["results"]) == runs
+        with report_path.open(encoding="utf-8", newline="") as report:
+            assert len(list(csv.DictReader(report))) == runs
+        assert baseline_path.read_bytes() == saved_baseline
+
+    @pytest.mark.parametrize("baseline", [
+        {"run_results": []},
+        {"run_results": [{"repetition": 2, "results": []}]},
+        {"run_results": [{"repetition": 1}, {"repetition": 1}]},
+        {"repetition": None, "results": [{"case_id": "q1", "repetition": 2}]},
+        {"repetition": None, "results": [{"case_id": "q1"}]},
+    ])
+    async def test_baseline_rejects_missing_or_ambiguous_first_repetition(self, tmp_path, baseline):
+        baseline_path = tmp_path / "baseline.json"
+        baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
+        with pytest.raises(ValueError, match="repetition"):
+            await Pipeline(_make_agent(), _make_suite(), baseline=baseline_path,
+                           runs=2, verbose=False).run()
+
+    async def test_baseline_still_rejects_duplicate_cases_within_first_repetition(self, tmp_path):
+        baseline_path = tmp_path / "baseline.json"
+        baseline_path.write_text(json.dumps({"run_results": [{
+            "repetition": 1, "results": [{"case_id": "q1"}, {"case_id": "q1"}],
+        }]}), encoding="utf-8")
+        with pytest.raises(ValueError, match="case-level diff requires one repetition"):
+            await Pipeline(_make_agent(), _make_suite(), baseline=baseline_path,
+                           runs=2, verbose=False).run()
 
 
 # ─── PipelineResult ──────────────────────────────────────────────

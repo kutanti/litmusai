@@ -33,6 +33,29 @@ from litmusai.core.scorer import Scorer
 from litmusai.core.suite import TestSuite
 
 
+def _baseline_for_case_diff(data: dict[str, Any]) -> dict[str, Any]:
+    """Select repetition 1 from a normalized multi-run baseline for case diffs."""
+    if "run_results" in data:
+        runs: list[dict[str, Any]] = data["run_results"]
+        first_runs = [run for run in runs if run.get("repetition") == 1]
+        if len(first_runs) != 1:
+            raise ValueError("multi-run baseline must contain exactly one run with repetition 1")
+        return first_runs[0]
+
+    # PipelineResult.eval.save() stores pooled rows without nested run_results.
+    if data.get("repetition", 1) is None:
+        rows: list[dict[str, Any]] = data.get("results", [])
+        if any(type(row.get("repetition")) is not int or row["repetition"] < 1 for row in rows):
+            raise ValueError("pooled baseline rows must have a positive integer repetition")
+        first_rows = [row for row in rows if row["repetition"] == 1]
+        if rows and not first_rows:
+            raise ValueError("pooled baseline must contain repetition 1")
+        return {**data, "results": first_rows}
+
+    # Single-run baselines, including legacy files, are used as supplied.
+    return data
+
+
 @dataclass
 class PipelineResult:
     """Result from a full pipeline run.
@@ -42,7 +65,8 @@ class PipelineResult:
         multi_run: Multi-run statistics (``None`` if ``runs=1``).
         safety: Safety scan report (``None`` if safety not enabled).
         report_path: Path to generated report (``None`` if no report).
-        baseline_diff: Baseline comparison (``None`` if no baseline).
+        baseline_diff: Case comparison using repetition 1 for multi-run inputs
+            (``None`` if no baseline). Reports and metrics still pool all runs.
         duration_ms: Total pipeline wall-clock time in milliseconds.
     """
 
@@ -109,7 +133,9 @@ class Pipeline:
             or ``None``.
         report_path: Output path for the report. Auto-generated if not set.
         log_dir: Directory to persist evaluation results as JSON.
-        baseline: Path to a previous result JSON for regression detection.
+        baseline: Path to a previous result JSON for case-level regression detection.
+            Multi-run inputs compare repetition 1 on each side; single-run
+            baselines are used as supplied. Metrics and reports pool all runs.
         threshold: Minimum pass rate (0.0–1.0) for the pipeline to "pass".
         verbose: Show progress output.
 
@@ -218,8 +244,10 @@ class Pipeline:
         if self.baseline:
             from litmusai.results import diff_results, load_results
 
-            baseline_data = load_results(str(self.baseline))
-            current_data = eval_results.to_dict()
+            baseline_data = _baseline_for_case_diff(load_results(str(self.baseline)))
+            # Preserve the original first-run comparison while reporting all runs.
+            current_run = multi_results.run_results[0] if multi_results else eval_results
+            current_data = current_run.to_dict()
             baseline_diff = diff_results(baseline_data, current_data)
 
         # ── Step 4: Generate report ──────────────────────────────

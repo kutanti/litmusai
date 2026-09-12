@@ -260,3 +260,12 @@ JUnit/CSV exporters continue to report assertion outcomes. For a case-level diff
 of multi-run results, select one entry from each payload's `run_results` first.
 The diff rejects repeated case IDs instead of silently selecting one prediction;
 statistical baseline comparisons remain follow-up work.
+
+`Pipeline(..., baseline=...)` compares repetition 1 of the current evaluation
+with repetition 1 of a multi-run baseline. A single-run baseline is used as
+supplied, including legacy result files. Multi-run baselines can be saved logs,
+CLI JSON envelopes, or pooled results saved with `PipelineResult.eval.save()`.
+Repetition numbers determine the selection even if saved runs are reordered;
+missing or ambiguous repetition 1 is rejected. This case-level comparison does
+not summarize variation across runs: `PipelineResult.eval`, metrics, pass-rate
+thresholds, logs, and reports continue to include all repetitions.
