@@ -103,6 +103,9 @@ class GroundTruth:
             )
         elif self.answer_type == "json":
             assertions.append(JsonValid())
+            if isinstance(self.answer, (dict, list)) and not self.answer:
+                # Empty collections impose no content constraints, including alternatives.
+                return assertions
             if self.answer is not None:
                 # Check for expected keys in dict answers
                 if isinstance(self.answer, dict):

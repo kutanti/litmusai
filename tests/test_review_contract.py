@@ -24,7 +24,7 @@ from litmusai.core.scorer import ScoreResult
 from litmusai.exports import to_csv, to_junit_xml
 from litmusai.metrics import Observation
 from litmusai.reports import render_html
-from litmusai.results import diff_results, load_results
+from litmusai.results import diff_results, load_results, normalize_results
 
 
 def make_row(**kwargs):
@@ -191,19 +191,126 @@ def test_python_readers_accept_pooled_cli_payloads(tmp_path, pooled_payload, wra
     assert "(run 1)" in html and "(run 2)" in html
     assert "café" in html and "東京" in html
     xml = ET.parse(to_junit_xml(data, tmp_path / "report.xml"))
-    assert len(xml.findall(".//testcase")) == 2
+    cases = xml.findall(".//testcase")
+    assert len({(case.get("name"), case.get("classname")) for case in cases}) == 2
+    for repetition, case in enumerate(cases, 1):
+        assert f"run {repetition}" in case.get("name")
+        properties = {p.get("name"): p.get("value") for p in case.findall("properties/property")}
+        assert properties == {
+            "evaluation_id": "eval", "case_id": "café", "repetition": str(repetition),
+        }
     assert len(xml.findall(".//failure")) == 1
     with to_csv(data, tmp_path / "report.csv").open(encoding="utf-8", newline="") as f:
         rows = list(csv.DictReader(f))
     assert [row["passed"] for row in rows] == ["False", "True"]
     assert all(row["response"] == "東京" for row in rows)
-    assert "50% (1/2)" in format_report(data)
+    assert [(r["evaluation_id"], r["case_id"], r["repetition"]) for r in rows] == [
+        ("eval", "café", "1"), ("eval", "café", "2"),
+    ]
+    report = format_report(data)
+    assert "50% (1/2)" in report
+    assert "| Case ID | Run |" in report
+    assert "| café | 1 | FAIL |" in report
+    assert "| café | 2 | PASS |" in report
     assert json.loads(format_report(data, fmt="json"))["results"] == pooled_payload
     path = tmp_path / "results.json"
     path.write_text(json.dumps(data), encoding="utf-8")
     assert load_results(path) == load_baseline(path) == pooled_payload
     assert not compare_with_baseline(data, pooled_payload)["has_regression"]
     assert json.dumps(data) == original
+
+
+@pytest.fixture
+def legacy_payload():
+    return {
+        "agent": "Earlier Agent", "suite": "Earlier Suite",
+        "summary": {"total": 1, "passed": 0, "failed": 1, "pass_rate": 0},
+        "results": [{"test": "Earlier café", "reason": "Expected a greeting",
+                     "output": "東京", "passed": False, "score": 0}],
+    }
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_cli_reports_preserve_legacy_names_and_content(tmp_path, legacy_payload, wrapped):
+    data = {"success": False, "results": legacy_payload} if wrapped else legacy_payload
+    original = json.dumps(data)
+    path = tmp_path / "legacy.json"
+    path.write_text(original, encoding="utf-8")
+    result = CliRunner().invoke(cli, ["report", "--results", str(path),
+        "--html", str(tmp_path / "report.html"), "--junit", str(tmp_path / "report.xml"),
+        "--csv", str(tmp_path / "report.csv"),
+    ])
+    assert result.exit_code == 0, result.output
+    html = (tmp_path / "report.html").read_text(encoding="utf-8")
+    for value in ("Earlier Agent", "Earlier Suite", "Earlier café", "Expected a greeting", "東京"):
+        assert value in html
+    xml = ET.parse(tmp_path / "report.xml")
+    assert xml.find("testsuite").get("name") == "Earlier Agent/Earlier Suite"
+    case = xml.find(".//testcase")
+    assert case.get("name") == "Earlier café"
+    assert case.get("classname") == "Earlier Agent.Earlier Suite"
+    assert case.find("failure").get("message") == "Expected a greeting"
+    assert "東京" in case.find("failure").text
+    assert case.find("system-out").text == "東京"
+    assert case.find("properties") is None
+    with (tmp_path / "report.csv").open(encoding="utf-8", newline="") as f:
+        row, = csv.DictReader(f)
+    assert (row["case_name"], row["score_reason"], row["response"]) == (
+        "Earlier café", "Expected a greeting", "東京",
+    )
+    assert row["case_id"] == row["evaluation_id"] == row["repetition"] == ""
+    assert load_results(path) == normalize_results(data)
+    to_csv(data, tmp_path / "direct.csv")
+    to_junit_xml(data, tmp_path / "direct.xml")
+    render_html(data, tmp_path / "direct.html")
+    assert (tmp_path / "direct.csv").read_bytes() == (tmp_path / "report.csv").read_bytes()
+    assert (tmp_path / "direct.xml").read_bytes() == (tmp_path / "report.xml").read_bytes()
+    assert json.dumps(data) == original
+
+
+def test_alias_normalization_preserves_canonical_values_and_child_runs(legacy_payload):
+    original = json.dumps(legacy_payload)
+    canonical = {**legacy_payload, "agent_name": "", "suite_name": "Current Suite",
+                 "results": [{**legacy_payload["results"][0], "case_name": "Current case",
+                              "response": "", "score_reason": "Current reason"}]}
+    data = {**canonical, "run_results": [legacy_payload, canonical]}
+    normalized = normalize_results(data)
+    assert normalized["agent_name"] == ""
+    assert normalized["suite_name"] == "Current Suite"
+    assert normalized["results"] == canonical["results"]
+    assert normalized["run_results"][0]["results"][0]["response"] == "東京"
+    assert normalized["run_results"][1] == canonical
+    assert "case_id" not in normalized["run_results"][0]["results"][0]
+    assert normalize_results(normalized) == normalized
+    assert json.dumps(legacy_payload) == original
+
+
+def test_exports_preserve_full_ids_and_distinguish_same_named_cases(tmp_path):
+    evaluation_id = "eval-" + "e" * 600
+    case_ids = ["café|<id>\n" + "c" * 600 + str(i) for i in (1, 2)]
+    data = {"results": [{"evaluation_id": evaluation_id, "case_id": case_id,
+                         "repetition": 1, "case_name": "Same name", "passed": True}
+                        for case_id in case_ids]}
+    with to_csv(data, tmp_path / "report.csv").open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert [r["case_id"] for r in rows] == case_ids
+    assert all(r["evaluation_id"] == evaluation_id and r["repetition"] == "1" for r in rows)
+    cases = ET.parse(to_junit_xml(data, tmp_path / "report.xml")).findall(".//testcase")
+    assert len({case.get("name") for case in cases}) == 2
+    for case, case_id in zip(cases, case_ids, strict=True):
+        properties = {p.get("name"): p.get("value") for p in case.findall("properties/property")}
+        assert properties == {"evaluation_id": evaluation_id, "case_id": case_id, "repetition": "1"}
+    markdown = format_report(data)
+    assert "café&#124;&lt;id&gt;<br>" in markdown
+    assert all(line.count("|") == 8 for line in markdown.splitlines() if "Same name" in line)
+
+
+@pytest.mark.parametrize("side", ["baseline", "current"])
+def test_diff_explains_missing_legacy_case_ids(legacy_payload, side):
+    with pytest.raises(ValueError, match="requires a nonempty case_id"):
+        diff_results(**{
+            "baseline": {"results": []}, "current": {"results": []}, side: legacy_payload,
+        })
 
 
 @pytest.mark.parametrize("side", ["baseline", "current"])

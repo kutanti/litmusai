@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -281,12 +282,15 @@ def format_report(
         lines.append("<details>")
         lines.append("<summary>Detailed Results</summary>")
         lines.append("")
-        lines.append("| # | Test | Status | Latency | Cost |")
-        lines.append("|---|------|--------|---------|------|")
+        lines.append("| # | Test | Case ID | Run | Status | Latency | Cost |")
+        lines.append("|---|------|---------|-----|--------|---------|------|")
         for i, r in enumerate(results_list, 1):
             status = "PASS" if r.get("passed") else "FAIL"
+            name = _markdown_cell(r.get("case_name", ""))
+            case_id = _markdown_cell(r.get("case_id", ""))
+            repetition = _markdown_cell(r.get("repetition", ""))
             lines.append(
-                f"| {i} | {r.get('case_name', r.get('test', ''))} | {status} "
+                f"| {i} | {name} | {case_id} | {repetition} | {status} "
                 f"| {r.get('latency_ms', 0):.0f}ms "
                 f"| ${r.get('cost', 0):.4f} |"
             )
@@ -294,6 +298,13 @@ def format_report(
         lines.append("</details>")
 
     return "\n".join(lines)
+
+
+def _markdown_cell(value: Any) -> str:
+    """Keep names and identities within one Markdown table cell."""
+    return escape(str(value)).replace("|", "&#124;").replace("\r\n", "<br>").replace(
+        "\r", "<br>",
+    ).replace("\n", "<br>")
 
 
 def format_table(
