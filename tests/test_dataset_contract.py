@@ -3,10 +3,12 @@
 import csv
 import json
 import re
+import sys
 import xml.etree.ElementTree as ET
 from copy import deepcopy
 from dataclasses import replace
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from click.testing import CliRunner
@@ -239,6 +241,39 @@ async def test_only_explicit_structured_inputs_add_a_keyword_argument(inputs):
     assert calls == [("hello", {} if inputs is None else {"inputs": {}})]
 
 
+@pytest.mark.parametrize("adapter", [
+    "from_openai_chat", "from_azure", "from_openai_agent", "from_cli",
+])
+@pytest.mark.parametrize("inputs", [{}, {"text": "café", "count": 0, "active": False}])
+async def test_text_adapters_reject_structured_cases_before_external_calls(
+    monkeypatch, adapter, inputs,
+):
+    unexpected_call = AsyncMock(side_effect=AssertionError("Unexpected external call"))
+    monkeypatch.setattr("httpx.AsyncClient.post", unexpected_call)
+    monkeypatch.setattr("asyncio.create_subprocess_shell", unexpected_call)
+    monkeypatch.setattr("asyncio.create_subprocess_exec", unexpected_call)
+    monkeypatch.setitem(sys.modules, "openai.agents",
+                        SimpleNamespace(Runner=SimpleNamespace(run=unexpected_call)))
+    if adapter == "from_openai_chat":
+        agent = Agent.from_openai_chat()
+    elif adapter == "from_azure":
+        agent = Agent.from_azure(resource="test", deployment="test", api_key="test-key")
+    elif adapter == "from_openai_agent":
+        agent = Agent.from_openai_agent(object())
+    else:
+        agent = Agent.from_cli("unused-command")
+    suite = dataset()
+    suite.cases[0].inputs = inputs
+    data = (await evaluate(agent, suite, verbose=False)).to_dict()
+    row, = data["results"]
+    assert row["passed"] is False
+    assert f"{adapter} does not support structured inputs" in row["error"]
+    assert "Agent.from_function" in row["error"]
+    assert row["inputs"] == inputs
+    assert data["metrics"]["accuracy"]["value"] == 0
+    unexpected_call.assert_not_called()
+
+
 async def test_saved_result_dict_does_not_alias_ground_truth_or_model_parameters():
     suite = TestSuite("snapshot", [TestCase(id="one", ground_truth=GroundTruth(
         answer={"items": []}, answer_type="json"))], metrics=MetricConfig(task_type="extraction"))
@@ -333,6 +368,18 @@ def test_csv_dataset_fields_handle_missing_provenance(
     assert row["dataset_revision"] == row["dataset_fingerprint"] == ""
     assert row["dataset_metadata"] == expected_metadata
     assert row["dataset_source"] == ""
+
+
+@pytest.mark.parametrize("inputs", [None, {}])
+async def test_csv_case_fields_leave_missing_values_blank_and_keep_empty_mappings(tmp_path, inputs):
+    suite = TestSuite("empty", [TestCase(id="one", task="hello", inputs=inputs)])
+    result = await evaluate(Agent.from_function(lambda _, **kwargs: "ok"), suite, verbose=False)
+    path = to_csv(result.to_dict(), tmp_path / "results.csv")
+    with path.open(encoding="utf-8", newline="") as handle:
+        row, = csv.DictReader(handle)
+    assert row["source"] == row["ground_truth"] == ""
+    assert row["inputs"] == ("" if inputs is None else "{}")
+    assert row["metadata"] == row["response_metadata"] == "{}"
 
 
 def test_legacy_result_identity_stays_missing_and_unicode_errors_survive(tmp_path):

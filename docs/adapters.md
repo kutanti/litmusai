@@ -16,6 +16,38 @@ Adapters normalize supported agent responses to `AgentResponse`. Check which met
 | `from_openai_agent` | Needs SDK compatibility work | Use a tested `from_function` wrapper; see below |
 | `from_callable` | Any object with a method | `Agent.from_callable(obj)` |
 
+## Structured inputs
+
+Cases with an `inputs` mapping pass it as one keyword argument to the adapter.
+An empty mapping is still a structured input; omitted or `None` inputs use the
+existing task-only call.
+
+| Adapter | Where the mapping is sent |
+| --- | --- |
+| `from_function`, `from_callable` | The callable receives `inputs=...` and must handle that keyword. |
+| `from_url` | The JSON body contains `inputs` beside the configured task field. |
+| `from_langchain` | The invocation mapping contains `inputs` beside `input` (the task). |
+| `from_crewai` | The mapping passed to `kickoff(inputs=...)` contains nested `inputs` beside `task`. |
+
+The chat completions, Azure, OpenAI Agents SDK, and CLI adapters reject structured
+inputs before sending a request or starting a subprocess. `Agent.run()` returns
+a failed response with an explanation, and evaluation records a failed case.
+Use `from_function` to define the prompt, SDK request, or stdin format that your
+agent needs. For example, if a text agent expects JSON after its instruction:
+
+```python
+import json
+from litmusai import Agent
+
+text_agent = Agent.from_cli("python agent.py")
+
+async def run_structured(task: str, *, inputs: dict):
+    prompt = f"{task}\nInputs: {json.dumps(inputs, ensure_ascii=False)}"
+    return await text_agent.run(prompt)
+
+agent = Agent.from_function(run_structured)
+```
+
 ## AgentResponse
 
 All adapters normalize outputs to `AgentResponse`:

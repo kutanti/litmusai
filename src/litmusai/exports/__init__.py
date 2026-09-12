@@ -174,7 +174,7 @@ def to_csv(
                 if dataset.get("source") is not None else ""
             )
             for key in ("inputs", "metadata", "source", "ground_truth", "response_metadata"):
-                row[key] = json.dumps(r[key], ensure_ascii=False) if key in r else ""
+                row[key] = json.dumps(r[key], ensure_ascii=False) if r.get(key) is not None else ""
             writer.writerow(row)
 
     return output_path

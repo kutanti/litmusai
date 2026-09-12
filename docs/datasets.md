@@ -59,6 +59,11 @@ still an explicit structured input. With `inputs=None`, or an older case that
 omits it, the runner calls `agent.run(task)` as before. Keys inside `inputs` are
 not expanded into function arguments.
 
+The chat completions, Azure, OpenAI Agents SDK, and CLI adapters accept text
+tasks. They reject structured `inputs`, including an empty mapping, before any
+external call. Use a function wrapper to define how the case data reaches the
+agent. See [adapter input support](adapters.md#structured-inputs).
+
 ## Dataset fields
 
 The serialized dataset has `schema_version`, `name`, `description`, `task_type`,
@@ -159,6 +164,8 @@ explicit dataset with empty metadata exports `{}`; absent dataset descriptions
 and absent source references leave their CSV fields blank. JUnit stores the
 dataset and case provenance as properties. Saved JSON, CSV response cells,
 and JUnit `system-out` preserve full response text; HTML uses a short preview.
+Missing or `null` per-case provenance fields also export as blank CSV cells;
+explicitly empty mappings, such as `inputs: {}` or `metadata: {}`, export as `{}`.
 
 For a case-level diff of multi-run evaluations, select one run from each
 payload's `run_results`. `Pipeline(baseline=...)` selects repetition 1 for

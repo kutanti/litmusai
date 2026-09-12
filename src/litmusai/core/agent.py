@@ -42,6 +42,15 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
+def _reject_structured_inputs(kwargs: dict[str, Any], adapter: str) -> None:
+    """Reject case data before a text adapter can silently discard it."""
+    if kwargs.get("inputs") is not None:
+        raise ValueError(
+            f"Agent.{adapter} does not support structured inputs; "
+            "use Agent.from_function to map the inputs into the agent request."
+        )
+
+
 @dataclass
 class ToolCall:
     """Record of a tool/function call made by an agent."""
@@ -365,7 +374,8 @@ class Agent:
         """Create an agent from a CLI command.
 
         Runs the command as a subprocess, passing the task via stdin,
-        and captures stdout as the output.
+        and captures stdout as the output. Structured ``inputs`` are rejected;
+        use ``from_function`` to define the command's input format explicitly.
 
         Args:
             command: The CLI command to run (e.g., "python my_agent.py").
@@ -380,6 +390,7 @@ class Agent:
             >>> agent = Agent.from_cli("node agent.js", name="js-agent")
         """
         async def cli_fn(task: str, **kwargs: Any) -> dict[str, Any]:
+            _reject_structured_inputs(kwargs, "from_cli")
             if shell:
                 proc = await asyncio.create_subprocess_shell(
                     command,
@@ -549,6 +560,9 @@ class Agent:
     ) -> Agent:
         """Create a LitmusAI agent from an OpenAI Agents SDK agent.
 
+        Structured ``inputs`` are rejected. Use ``from_function`` to map them
+        into the SDK request explicitly.
+
         Args:
             agent: An OpenAI Agent instance.
             name: Display name for the agent.
@@ -560,6 +574,7 @@ class Agent:
             >>> agent = Agent.from_openai_agent(oai_agent)
         """
         async def openai_fn(task: str, **kwargs: Any) -> dict[str, Any]:
+            _reject_structured_inputs(kwargs, "from_openai_agent")
             try:
                 from openai.agents import Runner
             except ImportError:
@@ -627,6 +642,9 @@ class Agent:
         Ollama, vLLM, Together AI, Fireworks, and any provider that
         implements the ``/v1/chat/completions`` endpoint.
 
+        Structured ``inputs`` are rejected. Use ``from_function`` to map them
+        into a prompt or provider request explicitly.
+
         For Azure OpenAI, use the Azure-specific endpoint directly
         via :meth:`from_url` or pass the full Azure URL as
         ``base_url`` with ``extra_headers`` for the api-key.
@@ -677,6 +695,7 @@ class Agent:
             endpoint = f"{clean_url}/chat/completions"
 
         async def openai_chat_fn(task: str, **kwargs: Any) -> AgentResponse:
+            _reject_structured_inputs(kwargs, "from_openai_chat")
             messages: list[dict[str, str]] = []
 
             # Support conversation history for multi-turn
@@ -814,6 +833,9 @@ class Agent:
         Builds the correct Azure URL and uses ``api-key`` header
         authentication automatically.
 
+        Structured ``inputs`` are rejected. Use ``from_function`` to map them
+        into a prompt or provider request explicitly.
+
         Args:
             resource: Azure resource name (e.g. ``"my-resource"``).
             deployment: Model deployment name (e.g. ``"gpt-4o"``).
@@ -870,6 +892,7 @@ class Agent:
         import httpx
 
         async def azure_chat_fn(task: str, **kwargs: Any) -> AgentResponse:
+            _reject_structured_inputs(kwargs, "from_azure")
             messages: list[dict[str, str]] = []
 
             # Support conversation history for multi-turn
