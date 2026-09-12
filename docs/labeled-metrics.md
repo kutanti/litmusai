@@ -40,7 +40,11 @@ CLI threshold/budget checks and GitHub Action outputs use this pooled summary.
 `--log-dir` saves the same complete result payload without the status envelope.
 
 Reports accept both the canonical `agent_name`, `suite_name`, and `case_name`
-fields and the earlier CLI aliases `agent`, `suite`, and `test`.
+fields and the earlier CLI aliases `agent`, `suite`, and `test`. Legacy `reason`
+and `output` fields map to `score_reason` and `response`. Normalization preserves
+the input and gives canonical fields precedence, including empty values. It also
+normalizes entries in `run_results`. Missing IDs in older files remain absent;
+case-level diffs require stable `case_id` values and cannot infer them from names.
 
 `Reporter.to_json()` uses the same payload as `EvalResults.to_dict()` and
 `MultiRunResults.to_dict()`. `load_results()`, report readers, and Python
@@ -49,6 +53,10 @@ raw result payloads and CLI status envelopes. Unsupported result versions are
 rejected. Multi-run HTML reports give every row its own details panel. Case-level
 diffs require one repetition from each result's `run_results`; passing pooled
 rows with repeated case IDs raises an error instead of discarding earlier runs.
+CSV includes full `evaluation_id`, `case_id`, and `repetition` columns without
+truncating identities. JUnit testcase names include available case IDs and
+repetitions, with all three identity fields also stored as testcase properties.
+Markdown/GitHub reports show the case ID and run number alongside each result.
 
 Suite loading and evaluation require nonempty, unique string case IDs, including
 for legacy suites and Python case lists. Invalid IDs fail before agent calls.
@@ -63,7 +71,8 @@ shared evaluation ID and a unique positive repetition for each child run.
 retains case ID, evaluation ID, repetition, task type, expected and predicted
 values, execution/validation status, error, and per-case evidence. Its JSON
 representation can be read using `Observation.model_validate_json(...)`.
-The identity tuple is `(evaluation_id, repetition, case_id)`.
+The identity tuple is `(evaluation_id, repetition, case_id)`. Observation IDs must
+contain a non-whitespace character; valid IDs are preserved verbatim.
 
 Observation values must be JSON scalars, lists, or objects with string keys at
 every nesting level. Non-string keys are rejected before serialization so keys
@@ -88,6 +97,13 @@ standalone loader rejects explicit malformed truth and duplicate case IDs while
 allowing cases that omit `ground_truth`. Applying truth validates all matching
 entries before changing any case. Use a `JsonValid` assertion directly when only
 JSON syntax matters and there is no expected answer.
+
+Legacy JSON ground truth checks JSON syntax and expected object keys, without
+requiring exact JSON equality. Empty object or array answers generate only
+`JsonValid`, so a correctly formatted empty response passes and malformed JSON
+fails. Other valid JSON responses also pass because there are no content
+constraints; alternatives do not add a constraint in this case. Use explicit
+assertions or labeled extraction metrics when content equality matters.
 
 This contract is the prerequisite for labeled metrics in issue #100. Dataset
 revisions, content fingerprints, external dataset identities, migration of older

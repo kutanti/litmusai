@@ -319,7 +319,11 @@ class DiffSummary:
 
 
 def normalize_results(data: dict[str, Any]) -> dict[str, Any]:
-    """Read a raw result payload or CLI status envelope without changing it."""
+    """Read raw/CLI results and legacy aliases without mutating the input.
+
+    Canonical fields take precedence, even when empty. Missing stable identities
+    stay absent; display names cannot reconstruct them.
+    """
     if not isinstance(data, dict):
         raise ValueError("result payload must be a mapping")
     if isinstance(data.get("results"), dict):
@@ -328,7 +332,28 @@ def normalize_results(data: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"Unsupported result schema_version: {data['schema_version']!r}")
     if not isinstance(data.get("results", []), list):
         raise ValueError("result rows must be a list")
-    return data
+    normalized = dict(data)
+    for legacy, canonical in (("agent", "agent_name"), ("suite", "suite_name")):
+        if canonical not in normalized and legacy in data:
+            normalized[canonical] = data[legacy]
+    if "results" in data:
+        rows = []
+        for row in data["results"]:
+            if not isinstance(row, dict):
+                raise ValueError("each result row must be a mapping")
+            normalized_row = dict(row)
+            for legacy, canonical in (
+                ("test", "case_name"), ("reason", "score_reason"), ("output", "response"),
+            ):
+                if canonical not in normalized_row and legacy in row:
+                    normalized_row[canonical] = row[legacy]
+            rows.append(normalized_row)
+        normalized["results"] = rows
+    if "run_results" in data:
+        if not isinstance(data["run_results"], list):
+            raise ValueError("run_results must be a list")
+        normalized["run_results"] = [normalize_results(run) for run in data["run_results"]]
+    return normalized
 
 
 def load_results(path: str | Path) -> dict[str, Any]:
@@ -397,6 +422,8 @@ def diff_results(
     # Index baseline results by case_id
     baseline_cases: dict[str, dict[str, Any]] = {}
     for r in baseline.get("results", []):
+        if not isinstance(r.get("case_id"), str) or not r["case_id"].strip():
+            raise ValueError("case-level diff requires a nonempty case_id on every row")
         if r["case_id"] in baseline_cases:
             raise ValueError(
                 "case-level diff requires one repetition; select a run from run_results"
@@ -406,6 +433,8 @@ def diff_results(
     # Index current results
     current_cases: dict[str, dict[str, Any]] = {}
     for r in current.get("results", []):
+        if not isinstance(r.get("case_id"), str) or not r["case_id"].strip():
+            raise ValueError("case-level diff requires a nonempty case_id on every row")
         if r["case_id"] in current_cases:
             raise ValueError(
                 "case-level diff requires one repetition; select a run from run_results"

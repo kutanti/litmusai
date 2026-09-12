@@ -103,13 +103,35 @@ class TestToAssertions:
         assert len(assertions) == 1
         assert isinstance(assertions[0], AnyOf)
 
-    def test_json_assertion(self):
-        from litmusai.assertions import JsonValid
+    @pytest.mark.parametrize("answer", [{}, []])
+    @pytest.mark.parametrize("alternatives", [[], ['{"alternative": true}']])
+    @pytest.mark.parametrize("response,passed", [
+        ("{}", True), ("{ }", True), ("[]", True), ("[ ]", True),
+        ('{"other": 1}', True), ("not JSON", False), ("{broken", False),
+    ])
+    def test_empty_json_ground_truth_scoring(self, answer, alternatives, response, passed):
+        from litmusai import TestCase
+        from litmusai.core.agent import AgentResponse
+        from litmusai.core.scorer import Scorer
 
-        gt = GroundTruth(answer={}, answer_type="json")
-        assertions = gt.to_assertions()
-        assert len(assertions) == 2
-        assert isinstance(assertions[0], JsonValid)
+        gt = GroundTruth(answer=answer, answer_type="json", alternatives=alternatives)
+        case = TestCase(id="empty", assertions=gt.to_assertions())
+        result = Scorer().score(case, AgentResponse(output=response))
+        assert result.passed is passed
+        assert result.score == (1.0 if passed else 0.0)
+
+    @pytest.mark.parametrize("response,passed", [
+        ('{"expected": 1}', True), ('{"alternative": true}', True),
+        ('{"other": 1}', False), ("expected", False),
+    ])
+    def test_nonempty_json_keeps_key_and_alternative_checks(self, response, passed):
+        from litmusai import TestCase
+        from litmusai.core.agent import AgentResponse
+        from litmusai.core.scorer import Scorer
+
+        gt = GroundTruth(answer={"expected": 1}, answer_type="json", alternatives=["alternative"])
+        case = TestCase(id="object", assertions=gt.to_assertions())
+        assert Scorer().score(case, AgentResponse(output=response)).passed is passed
 
     def test_boolean_assertion(self):
         from litmusai.assertions import RegexMatch
