@@ -1,6 +1,7 @@
 """Tests for CLI commands — history, diff, scan."""
 
 import json
+import shlex
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,26 @@ def runner():
 
 
 class TestInit:
+    def test_printed_next_step_runs_generated_suite(self, runner, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "my_agent.py").write_text(
+            'def agent(task):\n    return "hello" if "hello" in task.lower() else "4"\n',
+            encoding="utf-8",
+        )
+        initialized = runner.invoke(cli, ["init"])
+        assert initialized.exit_code == 0
+        command = " ".join(initialized.output.split()).split("2. Run: ", 1)[1]
+        args = shlex.split(command)
+        assert args[0] == "litmus"
+
+        evaluated = runner.invoke(cli, args[1:])
+        assert evaluated.exit_code == 0, evaluated.output
+        logs = list((tmp_path / ".litmus" / "logs").glob("*.json"))
+        assert len(logs) == 1
+        payload = json.loads(logs[0].read_text(encoding="utf-8"))
+        assert payload["summary"]["passed"] == 2
+        assert payload["summary"]["failed"] == 0
+
     def test_init_creates_files(self, runner, tmp_path):
         with runner.isolated_filesystem(temp_dir=tmp_path):
             result = runner.invoke(cli, ["init"])

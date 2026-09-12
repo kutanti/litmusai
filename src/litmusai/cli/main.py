@@ -66,7 +66,7 @@ def init() -> None:
     console.print("\nNext steps:")
     console.print("  1. Define your agent in a Python file")
     console.print(
-        "  2. Run: [bold]litmus run -s example -a my_agent:agent"
+        "  2. Run: [bold]litmus run -s suites/example.yaml -a my_agent.py:agent"
         "[/bold]"
     )
 
@@ -535,7 +535,7 @@ def _print_diff_table(result: object) -> None:
 )
 @click.option(
     "--categories", default=None,
-    help="Comma-separated categories to test (e.g. injection,jailbreak)",
+    help="Comma-separated categories to test (e.g. prompt_injection,jailbreak)",
 )
 @click.option(
     "--output", "-o", default=None,
@@ -560,7 +560,7 @@ def scan(
 
         litmus scan -a my_agent:agent --level thorough
 
-        litmus scan -a my_agent:agent --categories injection,jailbreak
+        litmus scan -a my_agent:agent --categories prompt_injection,jailbreak
 
         litmus scan -a my_agent:agent --fail-on-unsafe
     """

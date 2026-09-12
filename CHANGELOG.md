@@ -2,6 +2,20 @@
 
 All notable changes to LitmusAI will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- The command printed by `litmus init` now uses the generated suite's file path and a file-based agent reference.
+- CLI Markdown exports use UTF-8, including baseline comparison arrows and Unicode suite names on Windows.
+- The model-comparison example supplies a name-to-agent mapping and a default chat API URL.
+- The adapter demo uses a portable Python echo subprocess instead of Unix `cat`.
+
+### Documentation
+
+- Added a feature overview, comparison examples, a CLI reference, an extended usage guide, and a feature-validation report.
+- Corrected stale README descriptions of multi-run gates and documented unfinished commands and adapter limits.
+
 ## [0.4.0] - 2026-09-10
 
 ### Added
