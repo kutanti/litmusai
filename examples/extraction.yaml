@@ -1,0 +1,26 @@
+schema_version: "1.0"
+name: local-extraction
+description: Expected unique emails compared with extracted occurrences.
+metrics:
+  task_type: extraction
+  normalize_whitespace: true
+  casefold: true
+cases:
+  - id: two-addresses
+    task: Contact Alice@example.com and bob@example.com.
+    ground_truth:
+      answer_type: json
+      answer:
+        emails: [alice@example.com, bob@example.com]
+  - id: duplicate-address
+    task: Email a@example.com. Reminder, a@example.com.
+    ground_truth:
+      answer_type: json
+      answer:
+        emails: [a@example.com]
+  - id: obfuscated-address
+    task: Contact missing [at] example.com.
+    ground_truth:
+      answer_type: json
+      answer:
+        emails: [missing@example.com]
