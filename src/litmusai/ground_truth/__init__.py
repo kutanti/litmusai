@@ -286,8 +286,8 @@ def apply_ground_truth(
 ) -> int:
     """Apply ground truth entries to a test suite's cases.
 
-    For each case that has a matching ground truth entry and no
-    existing assertions, generates assertions from the ground truth.
+    Retains truth for every matching case. For legacy suites only, generates
+    assertions when no explicit assertions exist. Labeled suites use task metrics.
 
     Args:
         suite: A :class:`~litmusai.core.suite.TestSuite`.
@@ -301,15 +301,11 @@ def apply_ground_truth(
         gt = ground_truth.get(case.id)
         if gt is None:
             continue
-        # Only apply if case has no assertions already
-        if case.assertions:
-            continue
-        assertions = gt.to_assertions()
-        if assertions:
-            case.assertions = assertions
-            # Store ground truth metadata
-            case.metadata["ground_truth"] = gt.to_dict()
-            updated += 1
+        case.ground_truth = gt
+        case.metadata["ground_truth"] = gt.to_dict()
+        if not case.assertions and getattr(suite, "metrics", None) is None:
+            case.assertions = gt.to_assertions()
+        updated += 1
     return updated
 
 

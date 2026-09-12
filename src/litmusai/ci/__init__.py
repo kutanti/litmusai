@@ -17,7 +17,7 @@ from rich.console import Console
 from rich.table import Table
 
 from litmusai.core.agent import Agent
-from litmusai.core.runner import EvalResults, evaluate
+from litmusai.core.runner import EvalResults, MultiRunResults, evaluate
 from litmusai.core.scorer import Scorer
 from litmusai.core.suite import TestSuite
 
@@ -166,42 +166,9 @@ def compare_with_baseline(
 # ─── Result Serialization ─────────────────────────────────────────
 
 
-def results_to_dict(results: EvalResults) -> dict[str, Any]:
-    """Convert EvalResults to a serializable dict."""
-    d: dict[str, Any] = {
-        "agent": results.agent_name,
-        "suite": results.suite_name,
-        "timestamp": results.timestamp,
-        "summary": {
-            "total": len(results.results),
-            "passed": results.passed,
-            "failed": results.failed,
-            "pass_rate": round(results.pass_rate, 4),
-            "total_cost": round(results.total_cost, 6),
-            "avg_latency_ms": round(results.avg_latency_ms, 1),
-        },
-        "results": [
-            {
-                "test": r.case.name,
-                "task": r.case.task,
-                "passed": r.passed,
-                "score": r.score.score,
-                "reason": r.score.reason,
-                "latency_ms": round(r.latency_ms, 1),
-                "cost": round(r.cost, 6),
-                "output": r.response.output[:500],
-                **(
-                    {"dimensions": r.dimensions.to_dict()}
-                    if r.dimensions else {}
-                ),
-            }
-            for r in results.results
-        ],
-    }
-    avg_dim = results.avg_dimensions
-    if avg_dim:
-        d["dimensions"] = avg_dim.to_dict()
-    return d
+def results_to_dict(results: EvalResults | MultiRunResults) -> dict[str, Any]:
+    """Use the same versioned result payload as the Python API."""
+    return results.to_dict()
 
 
 # ─── Report Formatting ────────────────────────────────────────────
@@ -241,8 +208,8 @@ def format_report(
         return json.dumps(output, indent=2)
 
     summary = data.get("summary", {})
-    agent = data.get("agent", "unknown")
-    suite_name = data.get("suite", "unknown")
+    agent = data.get("agent_name", data.get("agent", "unknown"))
+    suite_name = data.get("suite_name", data.get("suite", "unknown"))
     timestamp = data.get("timestamp", "")
 
     lines: list[str] = []
@@ -313,7 +280,7 @@ def format_report(
         for i, r in enumerate(results_list, 1):
             status = "PASS" if r.get("passed") else "FAIL"
             lines.append(
-                f"| {i} | {r.get('test', '')} | {status} "
+                f"| {i} | {r.get('case_name', r.get('test', ''))} | {status} "
                 f"| {r.get('latency_ms', 0):.0f}ms "
                 f"| ${r.get('cost', 0):.4f} |"
             )
@@ -330,9 +297,11 @@ def format_table(
     """Print results as a rich table to console."""
     summary = data.get("summary", {})
 
-    table = Table(title=f"LitmusAI — {data.get('suite', 'Results')}")
+    table = Table(title=f"LitmusAI — {data.get('suite_name', data.get('suite', 'Results'))}")
     table.add_column("#", style="dim", width=4)
     table.add_column("Test", style="bold")
+    if data.get("n_runs", 1) > 1:
+        table.add_column("Run", justify="right")
     table.add_column("Status", justify="center")
     table.add_column("Score", justify="center")
     if show_dimensions:
@@ -348,10 +317,11 @@ def format_table(
         status = "PASS" if r.get("passed") else "FAIL"
         row = [
             str(i),
-            r.get("test", ""),
-            status,
-            f"{r.get('score', 0):.2f}",
+            r.get("case_name", r.get("test", "")),
         ]
+        if data.get("n_runs", 1) > 1:
+            row.append(str(r.get("repetition", "")))
+        row.extend([status, f"{r.get('score', 0):.2f}"])
         if show_dimensions:
             dims = r.get("dimensions", {})
             row.extend([
@@ -459,8 +429,10 @@ async def run_evaluation(
             concurrency=concurrency,
             verbose=fmt == "table",
         )
-        # Use the last run for standard reporting
-        results = multi.run_results[-1]
+        results = multi.combined
+        data = results_to_dict(multi)
+        if log_dir:
+            multi.save(Path(log_dir) / f"{multi.evaluation_id}.json")
         # Log multi-run stats
         if fmt == "table":
             console.print(f"\n{multi.to_table()}\n")
@@ -484,7 +456,7 @@ async def run_evaluation(
             log_dir=log_dir,
         )
 
-    data = results_to_dict(results)
+        data = results_to_dict(results)
 
     # Load baseline for comparison
     baseline = None
@@ -533,7 +505,10 @@ async def run_evaluation(
     if fmt == "table":
         format_table(data, show_dimensions=show_dimensions)
     elif fmt == "json":
-        console.print(json.dumps(output_payload, indent=2))
+        console.print(
+            json.dumps(output_payload, indent=2),
+            soft_wrap=True, markup=False, highlight=False,
+        )
     elif fmt in ("markdown", "github"):
         md = format_report(data, baseline, fmt="markdown",
                            threshold=effective_threshold)
@@ -543,7 +518,7 @@ async def run_evaluation(
     if output_path:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         if output_path.endswith(".json"):
-            Path(output_path).write_text(json.dumps(output_payload, indent=2))
+            Path(output_path).write_text(json.dumps(output_payload, indent=2), encoding="utf-8")
         else:
             Path(output_path).write_text(
                 format_report(data, baseline, fmt="markdown",
