@@ -152,8 +152,12 @@ display names. Older response text that was already truncated cannot be restored
 HTML reports explicitly indicate when dataset provenance is unavailable.
 
 HTML displays dataset provenance and per-case inputs/source metadata. CSV adds
-dataset ID/revision/fingerprint and JSON-encoded provenance fields. JUnit stores
-the dataset and case provenance as properties. Saved JSON, CSV response cells,
+dataset ID/revision/fingerprint and JSON-encoded provenance fields.
+`dataset_metadata` contains only the dataset's metadata mapping; `dataset_source`
+holds its source reference separately from the per-case `source` column. An
+explicit dataset with empty metadata exports `{}`; absent dataset descriptions
+and absent source references leave their CSV fields blank. JUnit stores the
+dataset and case provenance as properties. Saved JSON, CSV response cells,
 and JUnit `system-out` preserve full response text; HTML uses a short preview.
 
 For a case-level diff of multi-run evaluations, select one run from each

@@ -154,6 +154,7 @@ def to_csv(
         "input_tokens", "output_tokens", "model",
         "response", "evaluation_id", "repetition",
         "dataset_id", "dataset_revision", "dataset_fingerprint", "dataset_metadata",
+        "dataset_source",
         "inputs", "metadata", "source", "ground_truth", "response_metadata",
     ]
 
@@ -165,7 +166,13 @@ def to_csv(
             dataset = data.get("dataset") or {}
             for key in ("id", "revision", "fingerprint"):
                 row[f"dataset_{key}"] = dataset.get(key) or ""
-            row["dataset_metadata"] = json.dumps(dataset, ensure_ascii=False) if dataset else ""
+            row["dataset_metadata"] = (
+                json.dumps(dataset.get("metadata", {}), ensure_ascii=False) if dataset else ""
+            )
+            row["dataset_source"] = (
+                json.dumps(dataset["source"], ensure_ascii=False)
+                if dataset.get("source") is not None else ""
+            )
             for key in ("inputs", "metadata", "source", "ground_truth", "response_metadata"):
                 row[key] = json.dumps(r[key], ensure_ascii=False) if key in r else ""
             writer.writerow(row)

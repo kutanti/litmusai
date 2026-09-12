@@ -296,8 +296,13 @@ def test_cli_preserves_provenance_through_logs_readers_reports_and_diff(tmp_path
     with csv_path.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
     assert len(rows) == 2
+    assert rows[0]["dataset_id"] == "support-1"
     assert rows[0]["dataset_revision"] == "revision-2"
+    assert rows[0]["dataset_fingerprint"] == data["dataset"]["fingerprint"]
+    assert json.loads(rows[0]["dataset_metadata"]) == {"owner": "Zoë"}
+    assert json.loads(rows[0]["dataset_source"]) == suite.dataset.source.model_dump(mode="json")
     assert json.loads(rows[0]["inputs"]) == suite.cases[0].inputs
+    assert json.loads(rows[0]["metadata"]) == data["results"][0]["metadata"]
     assert json.loads(rows[0]["source"])["example_id"] == "example-1"
     assert rows[0]["response"] == full_response
     xml = ET.parse(to_junit_xml(data, tmp_path / "results.xml"))
@@ -307,6 +312,27 @@ def test_cli_preserves_provenance_through_logs_readers_reports_and_diff(tmp_path
                   for p in xml.findall(".//testcase/properties/property")}
     assert json.loads(case_props["source"])["trace_id"] == "source-trace-1"
     assert xml.find(".//testcase/system-out").text == full_response
+
+
+@pytest.mark.parametrize("provenance,expected_id,expected_metadata", [
+    pytest.param({}, "", "", id="legacy-missing-dataset"),
+    pytest.param({"dataset": None}, "", "", id="null-dataset"),
+    pytest.param({"dataset": {}}, "", "{}", id="empty-dataset"),
+    pytest.param({"dataset": {"id": "support-1"}}, "support-1", "{}", id="identity-only"),
+    pytest.param({"dataset": DatasetInfo().model_dump(mode="json")}, "", "{}",
+                 id="empty-metadata-null-source"),
+])
+def test_csv_dataset_fields_handle_missing_provenance(
+    tmp_path, provenance, expected_id, expected_metadata,
+):
+    data = {**provenance, "results": [{"case_id": "one", "response": "billing"}]}
+    path = to_csv(data, tmp_path / "results.csv")
+    with path.open(encoding="utf-8", newline="") as handle:
+        row, = csv.DictReader(handle)
+    assert row["dataset_id"] == expected_id
+    assert row["dataset_revision"] == row["dataset_fingerprint"] == ""
+    assert row["dataset_metadata"] == expected_metadata
+    assert row["dataset_source"] == ""
 
 
 def test_legacy_result_identity_stays_missing_and_unicode_errors_survive(tmp_path):
