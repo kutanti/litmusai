@@ -149,6 +149,7 @@ class TestSuite:
         for case_data in data.get("cases", []):
             # Parse YAML assertions into Assertion objects
             raw_assertions = case_data.pop("assertions", None)
+            has_ground_truth = "ground_truth" in case_data
             raw_ground_truth = case_data.pop("ground_truth", None)
             case = TestCase(**case_data)
             if raw_assertions is not None:
@@ -164,7 +165,7 @@ class TestSuite:
                 )
             # Auto-generate assertions from ground_truth if no
             # explicit assertions were provided
-            if raw_ground_truth is not None:
+            if has_ground_truth:
                 if not isinstance(raw_ground_truth, dict):
                     msg = (
                         f"'ground_truth' must be a mapping in case "
@@ -172,6 +173,11 @@ class TestSuite:
                     )
                     raise ValueError(msg)
                 gt = GroundTruth.from_dict(raw_ground_truth)
+                if gt.answer_type != "subjective" and gt.answer is None:
+                    raise ValueError(
+                        f"Case '{case.id}': non-subjective type "
+                        f"'{gt.answer_type}' requires an answer"
+                    )
                 case.ground_truth = gt
                 if not case.assertions and suite.metrics is None:
                     case.assertions = gt.to_assertions()

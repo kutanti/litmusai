@@ -101,3 +101,46 @@ def test_action_exposes_outputs_and_uses_checked_out_source():
     commands = [step["run"] for step in action["runs"]["steps"] if "run" in step]
     assert any('pip install "$GITHUB_ACTION_PATH"' in command for command in commands)
     assert all("${{ inputs." not in command for command in commands)
+
+
+async def test_multi_run_outputs_and_comment_include_every_repetition(action_run, monkeypatch):
+    from litmusai import Agent, GroundTruth, TestCase, TestSuite, multi_evaluate
+    from litmusai.assertions import Contains
+    from litmusai.ci import results_to_dict
+    from litmusai.core.agent import AgentResponse
+
+    responses = iter(["wrong", "right"])
+    agent = Agent.from_function(
+        lambda _: AgentResponse(output=next(responses), cost=0.02), name="flaky",
+    )
+    suite = TestSuite("repeated", [TestCase(
+        id="case", name="Repeated case", task="answer",
+        ground_truth=GroundTruth(answer="right"), assertions=[Contains(["right"])],
+    )])
+    multi = await multi_evaluate(agent, suite, runs=2, verbose=False)
+    payload = {"results": results_to_dict(multi), "success": False, "has_regression": False}
+    monkeypatch.setenv("INPUT_RUNS", "2")
+    monkeypatch.setenv("INPUT_POST_COMMENT", "true")
+
+    def run(args, *, check):
+        assert args[args.index("--runs") + 1] == "2"
+        path = Path(".litmus/results.json")
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.CompletedProcess(args, 1)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    assert action_run() == 1
+    outputs = dict(line.split("=", 1) for line in Path("outputs").read_text().splitlines())
+    assert outputs["pass-rate"] == "0.5"
+    assert outputs["total-cost"] == "0.04"
+    assert outputs["passed"] == "1"
+    assert outputs["failed"] == "1"
+    report = Path(outputs["comment-path"]).read_text(encoding="utf-8")
+    assert "FAILED" in report
+    assert "50%" in report
+    assert "$0.0400" in report
+    assert report.count("Repeated case") == 2
+    artifact = json.loads(Path(outputs["results-path"]).read_text(encoding="utf-8"))
+    assert artifact == payload
+    assert [run["repetition"] for run in artifact["results"]["run_results"]] == [1, 2]

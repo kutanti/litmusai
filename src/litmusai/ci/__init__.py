@@ -516,7 +516,10 @@ async def run_evaluation(
     if fmt == "table":
         format_table(data, show_dimensions=show_dimensions)
     elif fmt == "json":
-        console.print(json.dumps(output_payload, indent=2))
+        console.print(
+            json.dumps(output_payload, indent=2),
+            soft_wrap=True, markup=False, highlight=False,
+        )
     elif fmt in ("markdown", "github"):
         md = format_report(data, baseline, fmt="markdown",
                            threshold=effective_threshold)

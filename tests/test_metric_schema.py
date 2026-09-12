@@ -3,10 +3,97 @@
 import json
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from litmusai import Agent, GroundTruth, TestCase, TestSuite, multi_evaluate
 from litmusai.metrics import MetricConfig, Observation
+
+
+@pytest.mark.parametrize("truth", [
+    {}, {"answer_type": "text"}, {"answer_type": "numeric", "answer": None},
+    {"answer_type": "json"}, {"answer_type": "boolean"}, {"answer_type": "list"},
+])
+@pytest.mark.parametrize("explicit_assertions", [False, True])
+def test_suite_rejects_missing_ground_truth_answers(tmp_path, truth, explicit_assertions):
+    case = {"id": "missing", "task": "anything", "ground_truth": truth}
+    if explicit_assertions:
+        case["assertions"] = [{"type": "contains", "value": "anything"}]
+    path = tmp_path / "suite.yaml"
+    path.write_text(yaml.safe_dump({"name": "invalid", "cases": [case]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="Case 'missing'.*requires an answer"):
+        TestSuite.from_yaml(path)
+
+
+@pytest.mark.parametrize("truth", [None, False, [], "answer"])
+def test_explicit_ground_truth_requires_a_mapping(tmp_path, truth):
+    path = tmp_path / "suite.yaml"
+    path.write_text(yaml.safe_dump({"name": "invalid", "cases": [
+        {"id": "case", "task": "anything", "ground_truth": truth},
+    ]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="ground_truth.*must be a mapping"):
+        TestSuite.from_yaml(path)
+
+
+@pytest.mark.parametrize("answer_type,answer", [
+    ("text", ""), ("numeric", 0), ("boolean", False), ("json", {}), ("list", []),
+    ("subjective", None),
+])
+def test_suite_retains_valid_empty_answers_and_subjective_truth(tmp_path, answer_type, answer):
+    path = tmp_path / "suite.yaml"
+    path.write_text(yaml.safe_dump({"name": "valid", "cases": [
+        {"id": "case", "ground_truth": {"answer_type": answer_type, "answer": answer},
+         "assertions": [{"type": "contains", "value": "explicit check"}]},
+    ]}), encoding="utf-8")
+    case = TestSuite.from_yaml(path).cases[0]
+    assert case.expected_value == answer
+    assert case.ground_truth.answer_type == answer_type
+
+
+@pytest.mark.parametrize("field", ["expected", "predicted", "evidence"])
+@pytest.mark.parametrize("value", [
+    {1: "x", "1": "y"}, {"nested": [{False: "x"}]}, {"nested": {None: "x"}},
+])
+def test_observation_rejects_non_string_keys_recursively(field, value):
+    with pytest.raises(ValidationError, match="keys must be strings|string_type"):
+        Observation.model_validate({
+            "evaluation_id": "eval", "case_id": "case", "task_type": "extraction",
+            "expected": [], field: value,
+        })
+
+
+@pytest.mark.parametrize("value", [(1, 2), {"nested": (1, 2)}, {1, 2}, float("inf"), float("nan")])
+def test_observation_rejects_values_that_cannot_round_trip(value):
+    with pytest.raises(ValidationError):
+        Observation(evaluation_id="eval", case_id="case", task_type="extraction", expected=value)
+
+
+def test_observation_rejects_cycles():
+    value = []
+    value.append(value)
+    with pytest.raises(ValidationError, match="acyclic"):
+        Observation(evaluation_id="eval", case_id="case", task_type="extraction", expected=value)
+
+
+def test_nested_json_values_round_trip_without_coercion():
+    value = {"1": [0, False, None, "", 1.5, {"café": "Zoë"}], "empty": {}}
+    original = Observation(evaluation_id="eval", case_id="case", task_type="extraction",
+                           expected=value, predicted=value, evidence={"matched": [value]})
+    assert Observation.model_validate_json(original.model_dump_json()) == original
+
+
+def test_apply_truth_retains_empty_labeled_answers_without_generating_assertions():
+    from litmusai import apply_ground_truth
+
+    suite = TestSuite("extraction", [TestCase(id="empty")],
+                      metrics=MetricConfig(task_type="extraction"))
+    truth = GroundTruth(answer=[], answer_type="list")
+    assert apply_ground_truth(suite, {"empty": truth}) == 1
+    case = suite.cases[0]
+    assert case.ground_truth is truth
+    assert case.expected_value == []
+    assert case.metadata["ground_truth"] == truth.to_dict()
+    assert case.assertions == []
 
 
 def test_ground_truth_survives_explicit_assertions(tmp_path):
