@@ -17,7 +17,10 @@ def validate_extraction_truth(expected: Any, config: MetricConfig) -> None:
         raise ValueError("extraction metrics require task_type='extraction'")
     if not isinstance(expected, (list, dict)):
         raise ValueError("extraction ground truth must be an entity list or field mapping")
-    _validate_value(expected)
+    try:
+        _validate_value(expected)
+    except RecursionError as exc:
+        raise ValueError("extraction ground truth must be acyclic JSON data") from exc
 
 
 def _validate_value(value: Any) -> None:

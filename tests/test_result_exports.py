@@ -32,8 +32,10 @@ def test_cli_json_and_logs_preserve_payload(tmp_path, monkeypatch, runs):
 
     assert result.exit_code == 0, result.output
     payload = json.loads(output.read_text(encoding="utf-8"))
-    stdout_payload, _ = json.JSONDecoder().raw_decode(result.output[result.output.index("{"):])
+    stdout_payload = json.loads(result.stdout)
     assert stdout_payload == payload
+    assert "Running" in result.stderr
+    assert "Results saved to" in result.stderr
     data = payload["results"]
     assert data["schema_version"] == "1.0"
     assert data["evaluation_id"]

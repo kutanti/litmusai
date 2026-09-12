@@ -418,13 +418,17 @@ async def run_evaluation(
     """
     success = True
     effective_threshold = threshold if threshold is not None else 0.7
+    diagnostics = Console(stderr=True) if fmt == "json" else console
 
     # Load agent
     try:
         agent = load_agent(agent_path)
     except (ValueError, FileNotFoundError, ImportError, AttributeError, TypeError) as e:
-        console.print(f"[red]Error loading agent: {e}[/red]")
-        return {"success": False, "error": str(e)}
+        diagnostics.print(f"[red]Error loading agent: {e}[/red]")
+        failure = {"success": False, "error": str(e)}
+        if fmt == "json":
+            console.print(json.dumps(failure), soft_wrap=True, markup=False, highlight=False)
+        return failure
 
     # Load suite — support both names and file paths
     try:
@@ -435,11 +439,14 @@ async def run_evaluation(
             test_suite = TestSuite.load(suite)
         test_suite.validate_metrics()
     except Exception as e:
-        console.print(f"[red]Error loading suite '{suite}': {e}[/red]")
-        return {"success": False, "error": str(e)}
+        diagnostics.print(f"[red]Error loading suite '{suite}': {e}[/red]")
+        failure = {"success": False, "error": str(e)}
+        if fmt == "json":
+            console.print(json.dumps(failure), soft_wrap=True, markup=False, highlight=False)
+        return failure
 
     # Run evaluation
-    console.print(
+    diagnostics.print(
         f"Running [bold]{test_suite.name}[/bold] "
         f"with [bold]{agent.name}[/bold]"
         f"{f' ({runs} runs)' if runs > 1 else ''}..."
@@ -490,13 +497,13 @@ async def run_evaluation(
     if baseline_path:
         baseline = load_baseline(baseline_path)
         if baseline is None:
-            console.print(
+            diagnostics.print(
                 f"[yellow]Warning: baseline not found at {baseline_path}[/yellow]"
             )
 
     # Check threshold
     if threshold is not None and results.pass_rate < threshold:
-        console.print(
+        diagnostics.print(
             f"[red]Pass rate {results.pass_rate:.0%} "
             f"below threshold {threshold:.0%}[/red]"
         )
@@ -504,7 +511,7 @@ async def run_evaluation(
 
     # Check budget
     if budget is not None and results.total_cost > budget:
-        console.print(
+        diagnostics.print(
             f"[red]Total cost ${results.total_cost:.4f} "
             f"exceeds budget ${budget:.4f}[/red]"
         )
@@ -516,9 +523,9 @@ async def run_evaluation(
         comparison = compare_with_baseline(data, baseline)
         has_regression = comparison["has_regression"]
         if has_regression:
-            console.print("[red]Regressions detected:[/red]")
+            diagnostics.print("[red]Regressions detected:[/red]")
             for r in comparison["regressions"]:
-                console.print(f"  [red]• {r}[/red]")
+                diagnostics.print(f"  [red]• {r}[/red]")
             success = False
 
     # Build full output payload (consistent for stdout and file)
@@ -551,11 +558,11 @@ async def run_evaluation(
                 format_report(data, baseline, fmt="markdown",
                               threshold=effective_threshold)
             )
-        console.print(f"Results saved to {output_path}")
+        diagnostics.print(f"Results saved to {output_path}")
 
     # Save baseline
     if do_save_baseline:
         bp = save_baseline(data)
-        console.print(f"Baseline saved to {bp}")
+        diagnostics.print(f"Baseline saved to {bp}")
 
     return {"success": success, "data": data, "has_regression": has_regression}

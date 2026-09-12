@@ -600,6 +600,7 @@ async def evaluate(
     if concurrency < 1:
         raise ValueError("concurrency must be >= 1")
     suite.validate_metrics()
+    metric_config = suite.metrics.model_copy(deep=True) if suite.metrics is not None else None
 
     scorer = scorer or Scorer()
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -617,7 +618,7 @@ async def evaluate(
         config=config,
         evaluation_id=evaluation_id or uuid4().hex,
         repetition=repetition,
-        metric_config=suite.metrics,
+        metric_config=metric_config,
     )
 
     semaphore = asyncio.Semaphore(concurrency)
@@ -627,12 +628,12 @@ async def evaluate(
         async with semaphore:
             response = await agent.run(case.task)
             observation = None
-            if suite.metrics is not None:
+            if metric_config is not None:
                 observe = (classification_observation
-                           if suite.metrics.task_type == "classification"
+                           if metric_config.task_type == "classification"
                            else extraction_observation)
                 observation = observe(
-                    case.expected_value, response.output, config=suite.metrics, case_id=case.id,
+                    case.expected_value, response.output, config=metric_config, case_id=case.id,
                     evaluation_id=results.evaluation_id, repetition=repetition,
                     success=response.success, error=response.error,
                 )
@@ -722,7 +723,7 @@ async def evaluate(
         safe_agent = _safe_filename(agent.name)
         safe_suite = _safe_filename(suite.name)
         safe_time = _safe_filename(timestamp)
-        filename = f"{safe_agent}_{safe_suite}_{safe_time}.json"
+        filename = f"{safe_agent}_{safe_suite}_{safe_time}_{uuid4().hex}.json"
         saved = results.save(log_path / filename)
         if verbose:
             console.print(f"Results saved to {saved}")

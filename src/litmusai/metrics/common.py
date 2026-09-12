@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from collections.abc import Sequence
+from copy import deepcopy
 from typing import Any
 
 from litmusai.metrics.schema import MetricConfig, Observation
@@ -81,7 +82,7 @@ def parse_observation(
     """Read a full response; retain invalid JSON and execution errors as evidence."""
     observation = Observation(
         case_id=case_id, evaluation_id=evaluation_id, repetition=repetition,
-        task_type=config.task_type, expected=expected, predicted=output,
+        task_type=config.task_type, expected=deepcopy(expected), predicted=output,
     )
     if not success:
         observation.status = "execution_error"

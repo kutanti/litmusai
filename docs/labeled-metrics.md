@@ -216,7 +216,11 @@ truncation. Agents returning structured predictions should return JSON text, or
 
 `EvalResults.metrics` and `MultiRunResults.metrics` expose aggregate values and
 counts. `TestResult.observation` holds the complete selected prediction and
-per-case evidence. `MultiRunResults.combined` provides a pooled evaluation, while
+per-case evidence. Expected values and metric configuration are copied for each
+evaluation, so later edits to source ground truth or labels do not change
+completed metrics. Automatic log filenames include a unique suffix to retain
+evaluations started within the same second. `MultiRunResults.combined` provides a
+pooled evaluation, while
 `run_results` keeps each repetition. Combined result payloads use `repetition:
 null`; individual observations and per-run payloads retain their one-based number.
 
@@ -234,6 +238,9 @@ the Python API. Canonical names are `agent_name`, `suite_name`, `case_name`,
 preview remains truncated; the metric observation's selected values are complete.
 `load_results()` reads both Python files and CLI envelopes and rejects unsupported
 explicit versions. It does not invent case IDs for older CLI files.
+With `--format json`, stdout contains one JSON document; progress messages,
+warnings, and save confirmations go to stderr. Agent/suite loading failures emit
+`{"success": false, "error": "..."}` and exit with code 1.
 
 To recalculate metrics after a JSON round trip:
 
