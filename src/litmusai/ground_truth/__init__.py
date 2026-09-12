@@ -64,12 +64,18 @@ class GroundTruth:
             msg = f"confidence must be 0.0–1.0, got {self.confidence}"
             raise ValueError(msg)
 
+    def validate(self) -> None:
+        """Require an answer unless the entry describes a subjective check."""
+        if self.answer_type != "subjective" and self.answer is None:
+            raise ValueError(f"non-subjective type '{self.answer_type}' requires an answer")
+
     def to_assertions(self) -> list[Any]:
         """Generate assertions from this ground truth entry.
 
         Returns:
             List of :class:`~litmusai.assertions.Assertion` objects.
         """
+        self.validate()
         from litmusai.assertions import (
             AnyOf,
             Contains,
@@ -97,6 +103,9 @@ class GroundTruth:
             )
         elif self.answer_type == "json":
             assertions.append(JsonValid())
+            if isinstance(self.answer, (dict, list)) and not self.answer:
+                # Empty collections impose no content constraints, including alternatives.
+                return assertions
             if self.answer is not None:
                 # Check for expected keys in dict answers
                 if isinstance(self.answer, dict):
@@ -156,7 +165,7 @@ class GroundTruth:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> GroundTruth:
         """Deserialize from a dictionary."""
-        return cls(
+        truth = cls(
             answer=data.get("answer"),
             answer_type=data.get("answer_type", "text"),
             tolerance=data.get("tolerance"),
@@ -167,6 +176,8 @@ class GroundTruth:
             confidence=data.get("confidence", 1.0),
             notes=data.get("notes"),
         )
+        truth.validate()
+        return truth
 
 
 def load_ground_truth(path: str | Path) -> dict[str, GroundTruth]:
@@ -188,22 +199,37 @@ def load_ground_truth(path: str | Path) -> dict[str, GroundTruth]:
         Dict mapping case ID to :class:`GroundTruth`.
     """
     path = Path(path)
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     if not isinstance(data, dict):
-        return {}
+        raise ValueError("Root must be a mapping")
+
+    cases = data.get("cases", [])
+    if not isinstance(cases, list):
+        raise ValueError("'cases' must be a list")
 
     entries: dict[str, GroundTruth] = {}
 
-    for item in data.get("cases", []):
+    seen_ids: set[str] = set()
+    for index, item in enumerate(cases):
+        if not isinstance(item, dict):
+            raise ValueError(f"Case {index}: must be a mapping")
         case_id = item.get("id")
-        if not case_id:
-            continue
+        if not isinstance(case_id, str) or not case_id.strip():
+            raise ValueError(f"ground truth case ID must be a nonempty string: {case_id!r}")
+        if case_id in seen_ids:
+            raise ValueError(f"Case '{case_id}': duplicate ID")
+        seen_ids.add(case_id)
+        if "ground_truth" not in item:
+            continue  # A suite may mix labeled and unlabeled cases.
         gt_data = item.get("ground_truth")
-        if not gt_data:
-            continue
-        entries[case_id] = GroundTruth.from_dict(gt_data)
+        if not isinstance(gt_data, dict):
+            raise ValueError(f"Case '{case_id}': 'ground_truth' must be a mapping")
+        try:
+            entries[case_id] = GroundTruth.from_dict(gt_data)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"Case '{case_id}': {exc}") from exc
 
     return entries
 
@@ -224,7 +250,7 @@ def validate_ground_truth(
         return errors
 
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
     except yaml.YAMLError as e:
         errors.append(f"YAML parse error: {e}")
@@ -246,7 +272,7 @@ def validate_ground_truth(
             continue
 
         case_id = item.get("id")
-        if not case_id:
+        if not isinstance(case_id, str) or not case_id.strip():
             errors.append(f"Case {i}: missing 'id'")
             continue
 
@@ -267,13 +293,7 @@ def validate_ground_truth(
             continue
 
         try:
-            gt = GroundTruth.from_dict(gt_data)
-            # Validate answer is present for non-subjective types
-            if gt.answer_type != "subjective" and gt.answer is None:
-                errors.append(
-                    f"Case '{case_id}': non-subjective type "
-                    f"'{gt.answer_type}' requires an answer"
-                )
+            GroundTruth.from_dict(gt_data)
         except (ValueError, TypeError) as e:
             errors.append(f"Case '{case_id}': {e}")
 
@@ -286,8 +306,8 @@ def apply_ground_truth(
 ) -> int:
     """Apply ground truth entries to a test suite's cases.
 
-    For each case that has a matching ground truth entry and no
-    existing assertions, generates assertions from the ground truth.
+    Retains truth for every matching case. For legacy suites only, generates
+    assertions when no explicit assertions exist. Labeled suites use task metrics.
 
     Args:
         suite: A :class:`~litmusai.core.suite.TestSuite`.
@@ -296,20 +316,24 @@ def apply_ground_truth(
     Returns:
         Number of cases updated.
     """
+    # Validate the entire update before changing any case.
+    for case in suite.cases:
+        gt = ground_truth.get(case.id)
+        if gt is not None:
+            try:
+                gt.validate()
+            except ValueError as exc:
+                raise ValueError(f"Case '{case.id}': {exc}") from exc
     updated = 0
     for case in suite.cases:
         gt = ground_truth.get(case.id)
         if gt is None:
             continue
-        # Only apply if case has no assertions already
-        if case.assertions:
-            continue
-        assertions = gt.to_assertions()
-        if assertions:
-            case.assertions = assertions
-            # Store ground truth metadata
-            case.metadata["ground_truth"] = gt.to_dict()
-            updated += 1
+        case.ground_truth = gt
+        case.metadata["ground_truth"] = gt.to_dict()
+        if not case.assertions and getattr(suite, "metrics", None) is None:
+            case.assertions = gt.to_assertions()
+        updated += 1
     return updated
 
 

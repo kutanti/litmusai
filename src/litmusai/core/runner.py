@@ -18,9 +18,10 @@ import asyncio
 import json
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
@@ -28,6 +29,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from litmusai.core.agent import Agent, AgentResponse
 from litmusai.core.scorer import Scorer, ScoreResult
 from litmusai.core.suite import TestCase, TestSuite
+from litmusai.metrics.schema import SCHEMA_VERSION, Observation
 from litmusai.scoring import (
     DimensionBudget,
     ScoreVector,
@@ -58,11 +60,16 @@ class TestResult:
     input_tokens: int = 0
     output_tokens: int = 0
     dimensions: ScoreVector | None = None
+    observation: Observation | None = None
+    evaluation_id: str = ""
+    repetition: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary for JSON logging."""
         d = {
             "case_id": self.case.id,
+            "evaluation_id": self.evaluation_id,
+            "repetition": self.repetition if self.repetition is not None else 1,
             "case_name": self.case.name,
             "task": self.case.task,
             "response": self.response.output[:2000],
@@ -80,6 +87,8 @@ class TestResult:
         }
         if self.dimensions:
             d["dimensions"] = self.dimensions.to_dict()
+        if self.observation is not None:
+            d["observation"] = self.observation.model_dump(mode="json")
         return d
 
 
@@ -96,6 +105,48 @@ class EvalResults:
     total_output_tokens: int = 0
     timestamp: str = ""
     config: dict[str, Any] = field(default_factory=dict)
+    evaluation_id: str = field(default_factory=lambda: uuid4().hex)
+    repetition: int | None = 1
+
+    def _identified_results(self) -> list[TestResult]:
+        """Fill missing row identities without mutating caller-owned results."""
+        if not isinstance(self.evaluation_id, str) or not self.evaluation_id.strip():
+            raise ValueError("evaluation_id must be a nonempty string")
+        if self.repetition is not None and (
+            type(self.repetition) is not int or self.repetition < 1
+        ):
+            raise ValueError("repetition must be a positive integer or None for pooled results")
+        identified: list[TestResult] = []
+        seen: set[tuple[int, str]] = set()
+        for result in self.results:
+            case_id = result.case.id
+            if not isinstance(case_id, str) or not case_id.strip():
+                raise ValueError(f"case ID must be a nonempty string: {case_id!r}")
+            evaluation_id = (
+                self.evaluation_id if result.evaluation_id == "" else result.evaluation_id
+            )
+            repetition = result.repetition if result.repetition is not None else self.repetition
+            if evaluation_id != self.evaluation_id:
+                raise ValueError(f"case {case_id!r}: evaluation_id does not match its parent")
+            if type(repetition) is not int or repetition < 1:
+                raise ValueError(f"case {case_id!r}: repetition must be a positive integer")
+            if self.repetition is not None and repetition != self.repetition:
+                raise ValueError(f"case {case_id!r}: repetition does not match its parent")
+            observation = result.observation
+            if observation is not None and (
+                observation.evaluation_id, observation.repetition, observation.case_id
+            ) != (evaluation_id, repetition, case_id):
+                raise ValueError(
+                    f"case {case_id!r}: observation identity does not match its result"
+                )
+            identity = (repetition, case_id)
+            if identity in seen:
+                raise ValueError(
+                    f"duplicate result identity for case {case_id!r}, run {repetition}"
+                )
+            seen.add(identity)
+            identified.append(replace(result, evaluation_id=evaluation_id, repetition=repetition))
+        return identified
 
     @property
     def pass_rate(self) -> float:
@@ -150,6 +201,9 @@ class EvalResults:
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary for JSON logging."""
         d: dict[str, Any] = {
+            "schema_version": SCHEMA_VERSION,
+            "evaluation_id": self.evaluation_id,
+            "repetition": self.repetition,
             "agent_name": self.agent_name,
             "suite_name": self.suite_name,
             "timestamp": self.timestamp,
@@ -165,7 +219,7 @@ class EvalResults:
                 "total_input_tokens": self.total_input_tokens,
                 "total_output_tokens": self.total_output_tokens,
             },
-            "results": [r.to_dict() for r in self.results],
+            "results": [r.to_dict() for r in self._identified_results()],
         }
         avg_dim = self.avg_dimensions
         if avg_dim:
@@ -174,10 +228,11 @@ class EvalResults:
 
     def save(self, path: str | Path) -> Path:
         """Save results to a JSON file."""
+        data = self.to_dict()
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(self.to_dict(), f, indent=2, default=str)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, default=str)
         return path
 
     def __repr__(self) -> str:
@@ -264,6 +319,30 @@ class MultiRunResults:
     case_stats: dict[str, CaseStats] = field(default_factory=dict)
     run_results: list[EvalResults] = field(default_factory=list)
     timestamp: str = ""
+    evaluation_id: str = field(default_factory=lambda: uuid4().hex)
+
+    @property
+    def combined(self) -> EvalResults:
+        """Pool all repetitions for reporting and existing pass-rate/cost checks."""
+        results: list[TestResult] = []
+        repetitions: set[int] = set()
+        for run in self.run_results:
+            if run.evaluation_id != self.evaluation_id:
+                raise ValueError("all runs must share the parent evaluation_id")
+            if run.repetition is None or run.repetition in repetitions:
+                raise ValueError("each run must have a unique, positive repetition")
+            results.extend(run._identified_results())
+            repetitions.add(run.repetition)
+        return EvalResults(
+            agent_name=self.agent_name, suite_name=self.suite_name,
+            results=results,
+            total_cost=self.total_cost,
+            total_time_ms=sum(run.total_time_ms for run in self.run_results),
+            total_input_tokens=sum(run.total_input_tokens for run in self.run_results),
+            total_output_tokens=sum(run.total_output_tokens for run in self.run_results),
+            timestamp=self.timestamp, evaluation_id=self.evaluation_id, repetition=None,
+            config=self.run_results[0].config if self.run_results else {},
+        )
 
     @property
     def mean_pass_rate(self) -> float:
@@ -336,12 +415,18 @@ class MultiRunResults:
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:
+        combined = self.combined.to_dict()
         return {
+            **combined,
+            "schema_version": SCHEMA_VERSION,
+            "evaluation_id": self.evaluation_id,
             "agent_name": self.agent_name,
             "suite_name": self.suite_name,
             "n_runs": self.n_runs,
             "timestamp": self.timestamp,
+            "run_results": [run.to_dict() for run in self.run_results],
             "summary": {
+                **combined["summary"],
                 "mean_pass_rate": round(self.mean_pass_rate, 4),
                 "std_pass_rate": round(self.std_pass_rate, 4),
                 "total_cost": round(self.total_cost, 6),
@@ -365,6 +450,13 @@ class MultiRunResults:
 
     def __repr__(self) -> str:
         return f"MultiRunResults({self.summary()})"
+
+    def save(self, path: str | Path) -> Path:
+        """Save all repetitions and pooled summaries as UTF-8 JSON."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.to_dict(), indent=2, default=str), encoding="utf-8")
+        return path
 
 
 async def multi_evaluate(
@@ -396,6 +488,7 @@ async def multi_evaluate(
         raise ValueError(msg)
 
     all_runs: list[EvalResults] = []
+    evaluation_id = uuid4().hex
 
     for i in range(runs):
         if verbose:
@@ -405,6 +498,7 @@ async def multi_evaluate(
         result = await evaluate(
             agent, suite, scorer=scorer,
             concurrency=concurrency, verbose=verbose,
+            evaluation_id=evaluation_id, repetition=i + 1,
         )
         all_runs.append(result)
 
@@ -434,6 +528,7 @@ async def multi_evaluate(
         case_stats=case_stats,
         run_results=all_runs,
         timestamp=time.strftime("%Y-%m-%dT%H:%M:%S"),
+        evaluation_id=evaluation_id,
     )
 
     if verbose:
@@ -451,6 +546,8 @@ async def evaluate(
     *,
     log_dir: str | Path | None = None,
     dimension_budget: DimensionBudget | None = None,
+    evaluation_id: str | None = None,
+    repetition: int = 1,
 ) -> EvalResults:
     """Run an agent against a test suite and return results.
 
@@ -462,12 +559,22 @@ async def evaluate(
         verbose: Show progress bar.
         log_dir: Directory to save full result logs (JSON).
         dimension_budget: Custom latency/cost budgets for scoring.
+        evaluation_id: Shared identity for repetitions; generated if omitted.
+        repetition: One-based repetition number within the evaluation.
 
     Returns:
         :class:`EvalResults` with per-case scores and aggregates.
     """
     if isinstance(suite, list):
         suite = TestSuite(name="evaluation", cases=suite)
+
+    suite.validate_case_ids()
+    if type(repetition) is not int or repetition < 1:
+        raise ValueError("repetition must be a positive integer")
+    if evaluation_id is not None and (
+        not isinstance(evaluation_id, str) or not evaluation_id.strip()
+    ):
+        raise ValueError("evaluation_id must not be empty")
 
     scorer = scorer or Scorer()
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -483,6 +590,8 @@ async def evaluate(
         suite_name=suite.name,
         timestamp=timestamp,
         config=config,
+        evaluation_id=evaluation_id or uuid4().hex,
+        repetition=repetition,
     )
 
     semaphore = asyncio.Semaphore(concurrency)
@@ -511,6 +620,8 @@ async def evaluate(
                 input_tokens=response.input_tokens,
                 output_tokens=response.output_tokens,
                 dimensions=dimensions,
+                evaluation_id=results.evaluation_id,
+                repetition=repetition,
             )
 
     def _accumulate(result: TestResult) -> None:

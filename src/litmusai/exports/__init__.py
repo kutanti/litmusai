@@ -16,6 +16,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
+from litmusai.results import normalize_results
+
 
 def to_junit_xml(
     data: dict[str, Any],
@@ -24,12 +26,13 @@ def to_junit_xml(
     """Export evaluation results as JUnit XML.
 
     Args:
-        data: Result dict from ``EvalResults.to_dict()``.
+        data: Result dict from ``EvalResults.to_dict()`` or a CLI status envelope.
         output_path: Where to write the XML file.
 
     Returns:
         Path to the generated XML file.
     """
+    data = normalize_results(data)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -70,9 +73,24 @@ def to_junit_xml(
     # Test cases
     for r in results:
         tc = ET.SubElement(testsuite, "testcase")
-        tc.set("name", r.get("case_name", r.get("case_id", "?")))
+        name = r.get("case_name", r.get("case_id", "?"))
+        identity = []
+        if r.get("case_id") is not None:
+            identity.append(f"case_id={r['case_id']}")
+        if r.get("repetition") is not None:
+            identity.append(f"run {r['repetition']}")
+        if identity:
+            name = f"{name} [{'; '.join(identity)}]"
+        tc.set("name", name)
         tc.set("classname", f"{agent_name}.{suite_name}")
         tc.set("time", f"{r.get('latency_ms', 0) / 1000:.3f}")
+
+        identities = {key: r[key] for key in ("evaluation_id", "case_id", "repetition")
+                      if r.get(key) is not None}
+        if identities:
+            case_props = ET.SubElement(tc, "properties")
+            for key, value in identities.items():
+                ET.SubElement(case_props, "property", name=key, value=str(value))
 
         if not r.get("passed", True):
             failure = ET.SubElement(tc, "failure")
@@ -109,7 +127,7 @@ def to_csv(
     """Export evaluation results as CSV.
 
     Args:
-        data: Result dict from ``EvalResults.to_dict()``.
+        data: Result dict from ``EvalResults.to_dict()`` or a CLI status envelope.
         output_path: Where to write the CSV file.
 
     Returns:
@@ -117,6 +135,7 @@ def to_csv(
     """
     import csv
 
+    data = normalize_results(data)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -126,15 +145,16 @@ def to_csv(
         "case_id", "case_name", "task", "passed", "score",
         "score_reason", "latency_ms", "cost",
         "input_tokens", "output_tokens", "model",
-        "response",
+        "response", "evaluation_id", "repetition",
     ]
 
-    with open(output_path, "w", newline="") as f:
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for r in results:
             writer.writerow({
-                k: str(r.get(k, ""))[:500]
+                k: (str(r.get(k, "")) if k in ("evaluation_id", "case_id", "repetition")
+                    else str(r.get(k, ""))[:500])
                 for k in fieldnames
             })
 

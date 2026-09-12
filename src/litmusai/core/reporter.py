@@ -43,37 +43,12 @@ class Reporter:
     @staticmethod
     def to_json(results: Any, path: str | Path | None = None) -> str:
         """Export results as JSON."""
-        data = {
-            "agent": results.agent_name,
-            "suite": results.suite_name,
-            "timestamp": results.timestamp,
-            "summary": {
-                "total": len(results.results),
-                "passed": results.passed,
-                "failed": results.failed,
-                "pass_rate": results.pass_rate,
-                "total_cost": results.total_cost,
-                "avg_latency_ms": results.avg_latency_ms,
-            },
-            "results": [
-                {
-                    "test": r.case.name,
-                    "task": r.case.task,
-                    "passed": r.passed,
-                    "score": r.score.score,
-                    "reason": r.score.reason,
-                    "latency_ms": r.latency_ms,
-                    "cost": r.cost,
-                    "output": r.response.output[:500],
-                }
-                for r in results.results
-            ],
-        }
+        data = results.to_dict()
 
         json_str = json.dumps(data, indent=2)
 
         if path:
-            Path(path).write_text(json_str)
+            Path(path).write_text(json_str, encoding="utf-8")
 
         return json_str
 
