@@ -38,7 +38,7 @@ class PipelineResult:
     """Result from a full pipeline run.
 
     Attributes:
-        eval: Evaluation results (single run or first run if multi-run).
+        eval: Evaluation results pooled across all repetitions.
         multi_run: Multi-run statistics (``None`` if ``runs=1``).
         safety: Safety scan report (``None`` if safety not enabled).
         report_path: Path to generated report (``None`` if no report).
@@ -182,14 +182,6 @@ class Pipeline:
         if self.runs > 1:
             from litmusai.core.runner import multi_evaluate
 
-            if self.log_dir:
-                import warnings
-                warnings.warn(
-                    "log_dir is not supported with multi-run (runs > 1). "
-                    "Logs will not be saved.",
-                    stacklevel=2,
-                )
-
             multi_results = await multi_evaluate(
                 self.agent,
                 self._suite,
@@ -198,8 +190,9 @@ class Pipeline:
                 concurrency=self.concurrency,
                 verbose=self.verbose,
             )
-            # Use the first run as the primary eval result
-            eval_results = multi_results.run_results[0]
+            eval_results = multi_results.combined
+            if self.log_dir:
+                multi_results.save(Path(self.log_dir) / f"{multi_results.evaluation_id}.json")
         else:
             from litmusai.core.runner import evaluate
 

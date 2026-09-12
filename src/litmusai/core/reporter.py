@@ -39,6 +39,10 @@ class Reporter:
 
         console.print(table)
         console.print(f"\n{results.summary()}")
+        if results.metrics:
+            from litmusai.metrics.presentation import print_metrics
+
+            print_metrics(results.metrics, console)
 
     @staticmethod
     def to_json(results: Any, path: str | Path | None = None) -> str:
@@ -76,7 +80,11 @@ class Reporter:
                 f"| {i} | {r.case.name} | {status} | {r.latency_ms:.0f}ms | ${r.cost:.4f} |"
             )
 
+        if results.metrics:
+            from litmusai.metrics.presentation import metric_markdown
+
+            lines.extend(["", metric_markdown(results.metrics)])
         md = "\n".join(lines)
         if path:
-            Path(path).write_text(md)
+            Path(path).write_text(md, encoding="utf-8")
         return md

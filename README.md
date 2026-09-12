@@ -5,7 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-LitmusAI runs test cases against AI agents and records assertion results, latency, token usage, and estimated cost. Use it to compare model or prompt changes on tasks from your application.
+LitmusAI runs test cases against AI agents and records assertion results, labeled task metrics, latency, token usage, and estimated cost. Use it to compare model or prompt changes on tasks from your application.
 
 ## Installation
 
@@ -100,6 +100,20 @@ For a new project, `litmus init` writes `.litmus/config.yaml` and `suites/exampl
 
 Assertions cover strings, numbers, regular expressions, JSON, semantic similarity, and LLM grading. `All`, `AnyOf`, `AtLeast`, and `Weighted` combine checks. Semantic and LLM assertions make additional API calls. JSON Schema validation uses the optional `jsonschema` package; install it for full schema support.
 
+## Classification and extraction metrics
+
+Labeled suites report precision, recall and F1 from ground truth without an LLM judge. Classification includes accuracy, per-class counts, micro/macro/weighted averages and a confusion matrix. Extraction matches field values or entity occurrences one-to-one, with optional whitespace normalization and case folding.
+
+From a checkout, run the local examples:
+
+```bash
+litmus run -s examples/routing.yaml -a examples/labeled_agents.py:route --runs 3 -o routing.json
+litmus run -s examples/extraction.yaml -a examples/labeled_agents.py:extract -o extraction.json
+litmus report -r routing.json --html routing.html
+```
+
+Failed calls and malformed predictions remain visible through error counts, prediction coverage and missed labels/items. Metrics pool counts across all repetitions and remain separate from assertion pass rates. See [labeled metrics](docs/labeled-metrics.md) for the Python API, matching rules, undefined values and result schema.
+
 ## Results and cost
 
 Python results include per-case scores, responses, latency, and token counts. Use the `results.json` saved in the quick start to generate HTML, JUnit XML, or CSV reports:
@@ -124,7 +138,7 @@ litmus run -s tests.yaml -a my_agent.py:agent --format json --output run.json
 litmus run -s tests.yaml -a my_agent.py:agent --format markdown --output run.md
 ```
 
-CLI JSON uses a different structure from `results.save()`. Use Python-saved results for `litmus report` exports and `litmus diff`.
+CLI JSON wraps the same versioned payload as `results.save()` in a status envelope. Both can be loaded by `litmus report` and `litmus diff`. Multi-run files retain every repetition; select individual `run_results` entries for a case-level diff.
 
 Chat adapters read token counts from provider responses and calculate cost using the bundled pricing table. These are estimates, not billing records: prices can become outdated, and cached tokens or other provider charges may differ. An unrecognized model can report zero cost when no pricing is available.
 

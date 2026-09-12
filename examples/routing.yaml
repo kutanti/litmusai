@@ -1,0 +1,24 @@
+schema_version: "1.0"
+name: local-routing
+description: A keyword router with one deliberately missed billing request.
+metrics:
+  task_type: classification
+  labels: [billing, support]
+  prediction_field: /label
+cases:
+  - id: invoice
+    task: Where is my invoice?
+    ground_truth:
+      answer: billing
+  - id: payment
+    task: My payment was charged twice.
+    ground_truth:
+      answer: billing
+  - id: refund
+    task: I need a refund.
+    ground_truth:
+      answer: billing
+  - id: login
+    task: I cannot log in.
+    ground_truth:
+      answer: support

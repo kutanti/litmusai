@@ -13,6 +13,7 @@ Usage::
 from __future__ import annotations
 
 import html
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -177,7 +178,7 @@ footer a {{ color: var(--blue); text-decoration: none; }}
 
 <div class="cards">
     <div class="card">
-        <div class="label">Pass Rate</div>
+        <div class="label">{pass_label}</div>
         <div class="value {pass_color}">{pass_rate}</div>
         <div class="pass-bar">
             <div class="fill" style="width:{pass_pct}%;background:var(--{pass_color})"></div>
@@ -191,7 +192,7 @@ footer a {{ color: var(--blue); text-decoration: none; }}
         </div>
     </div>
     <div class="card">
-        <div class="label">Avg Score</div>
+        <div class="label">{score_label}</div>
         <div class="value">{avg_score}</div>
     </div>
     <div class="card">
@@ -211,6 +212,8 @@ footer a {{ color: var(--blue); text-decoration: none; }}
     </div>
 </div>
 
+{check_note}
+{metrics_section}
 {dimensions_section}
 
 <h2>Test Results</h2>
@@ -437,6 +440,11 @@ def _make_row(idx: int, r: dict[str, Any]) -> str:
     reason = _esc(r.get("score_reason", ""))
     response = _esc(str(r.get("response", ""))[:500])
     task = _esc(str(r.get("task", ""))[:200])
+    evidence = ""
+    if r.get("observation"):
+        evidence = "<br><strong>Metric evidence:</strong><pre>" + _esc(
+            json.dumps(r["observation"], ensure_ascii=False, indent=2)
+        ) + "</pre>"
 
     row = (
         f'<tr class="result-row" data-status="{"pass" if passed else "fail"}" '
@@ -459,6 +467,7 @@ def _make_row(idx: int, r: dict[str, Any]) -> str:
         f"<strong>Task:</strong> {task}<br>"
         f"<strong>Reason:</strong> {reason}<br>"
         f"<strong>Response:</strong> {response}"
+        f"{evidence}"
         f"</td></tr>"
     )
 
@@ -503,12 +512,20 @@ def render_html(
     agent_name = _esc(data.get("agent_name", "Agent"))
     suite_name = _esc(data.get("suite_name", "Suite"))
 
+    from litmusai.metrics.presentation import metric_html
+
     html_out = _TEMPLATE.format(
         title=f"{agent_name} — {suite_name}",
         subtitle=f"Agent: {agent_name} · "
                  f"Suite: {suite_name} · "
                  f"{total} tests",
         pass_rate=f"{pass_rate_val:.0%}",
+        pass_label="Check Pass Rate" if data.get("metrics") else "Pass Rate",
+        score_label="Avg Check Score" if data.get("metrics") else "Avg Score",
+        check_note=(
+            "<p>Check scores use assertions or legacy checks. Without explicit checks, "
+            "they only test for nonempty output.</p>" if data.get("metrics") else ""
+        ),
         pass_pct=f"{pass_pct:.0f}",
         pass_color=_score_color(pass_rate_val),
         total=total,
@@ -523,6 +540,7 @@ def render_html(
         rows=rows_html,
         timestamp=_esc(data.get("timestamp", "")),
         dimensions_section=_build_dimensions_section(data),
+        metrics_section=metric_html(data["metrics"]) if data.get("metrics") else "",
     )
 
     output_path.write_text(html_out, encoding="utf-8")

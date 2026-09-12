@@ -106,7 +106,7 @@ def save_baseline(data: dict[str, Any], path: str | Path | None = None) -> Path:
     """Save evaluation results as baseline."""
     p = Path(path or ".litmus/baseline.json")
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, indent=2))
+    p.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return p
 
 
@@ -297,6 +297,10 @@ def format_report(
         lines.append("")
         lines.append("</details>")
 
+    if data.get("metrics"):
+        from litmusai.metrics.presentation import metric_markdown
+
+        lines.extend(["", metric_markdown(data["metrics"])])
     return "\n".join(lines)
 
 
@@ -366,6 +370,10 @@ def format_table(
         f"| Pass rate: {pass_rate:.0%}"
     )
     console.print(summary_line)
+    if data.get("metrics"):
+        from litmusai.metrics.presentation import print_metrics
+
+        print_metrics(data["metrics"], console)
 
     # Show dimension summary if available
     if show_dimensions and "dimensions" in data:
@@ -425,6 +433,7 @@ async def run_evaluation(
             test_suite = TestSuite.from_yaml(suite_path)
         else:
             test_suite = TestSuite.load(suite)
+        test_suite.validate_metrics()
     except Exception as e:
         console.print(f"[red]Error loading suite '{suite}': {e}[/red]")
         return {"success": False, "error": str(e)}
