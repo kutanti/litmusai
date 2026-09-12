@@ -61,11 +61,15 @@ class TestResult:
     output_tokens: int = 0
     dimensions: ScoreVector | None = None
     observation: Observation | None = None
+    evaluation_id: str = ""
+    repetition: int = 1
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary for JSON logging."""
         d = {
             "case_id": self.case.id,
+            "evaluation_id": self.evaluation_id,
+            "repetition": self.repetition,
             "case_name": self.case.name,
             "task": self.case.task,
             "response": self.response.output[:2000],
@@ -102,7 +106,7 @@ class EvalResults:
     timestamp: str = ""
     config: dict[str, Any] = field(default_factory=dict)
     evaluation_id: str = field(default_factory=lambda: uuid4().hex)
-    repetition: int = 1
+    repetition: int | None = 1
 
     @property
     def pass_rate(self) -> float:
@@ -277,6 +281,20 @@ class MultiRunResults:
     evaluation_id: str = field(default_factory=lambda: uuid4().hex)
 
     @property
+    def combined(self) -> EvalResults:
+        """Pool all repetitions for reporting and existing pass-rate/cost checks."""
+        return EvalResults(
+            agent_name=self.agent_name, suite_name=self.suite_name,
+            results=[result for run in self.run_results for result in run.results],
+            total_cost=self.total_cost,
+            total_time_ms=sum(run.total_time_ms for run in self.run_results),
+            total_input_tokens=sum(run.total_input_tokens for run in self.run_results),
+            total_output_tokens=sum(run.total_output_tokens for run in self.run_results),
+            timestamp=self.timestamp, evaluation_id=self.evaluation_id, repetition=None,
+            config=self.run_results[0].config if self.run_results else {},
+        )
+
+    @property
     def mean_pass_rate(self) -> float:
         if not self.run_results:
             return 0.0
@@ -347,7 +365,9 @@ class MultiRunResults:
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:
+        combined = self.combined.to_dict()
         return {
+            **combined,
             "schema_version": SCHEMA_VERSION,
             "evaluation_id": self.evaluation_id,
             "agent_name": self.agent_name,
@@ -356,6 +376,7 @@ class MultiRunResults:
             "timestamp": self.timestamp,
             "run_results": [run.to_dict() for run in self.run_results],
             "summary": {
+                **combined["summary"],
                 "mean_pass_rate": round(self.mean_pass_rate, 4),
                 "std_pass_rate": round(self.std_pass_rate, 4),
                 "total_cost": round(self.total_cost, 6),
@@ -379,6 +400,13 @@ class MultiRunResults:
 
     def __repr__(self) -> str:
         return f"MultiRunResults({self.summary()})"
+
+    def save(self, path: str | Path) -> Path:
+        """Save all repetitions and pooled summaries as UTF-8 JSON."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.to_dict(), indent=2, default=str), encoding="utf-8")
+        return path
 
 
 async def multi_evaluate(
@@ -539,6 +567,8 @@ async def evaluate(
                 input_tokens=response.input_tokens,
                 output_tokens=response.output_tokens,
                 dimensions=dimensions,
+                evaluation_id=results.evaluation_id,
+                repetition=repetition,
             )
 
     def _accumulate(result: TestResult) -> None:
