@@ -18,7 +18,7 @@ import asyncio
 import json
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -62,14 +62,14 @@ class TestResult:
     dimensions: ScoreVector | None = None
     observation: Observation | None = None
     evaluation_id: str = ""
-    repetition: int = 1
+    repetition: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary for JSON logging."""
         d = {
             "case_id": self.case.id,
             "evaluation_id": self.evaluation_id,
-            "repetition": self.repetition,
+            "repetition": self.repetition if self.repetition is not None else 1,
             "case_name": self.case.name,
             "task": self.case.task,
             "response": self.response.output[:2000],
@@ -107,6 +107,46 @@ class EvalResults:
     config: dict[str, Any] = field(default_factory=dict)
     evaluation_id: str = field(default_factory=lambda: uuid4().hex)
     repetition: int | None = 1
+
+    def _identified_results(self) -> list[TestResult]:
+        """Fill missing row identities without mutating caller-owned results."""
+        if not isinstance(self.evaluation_id, str) or not self.evaluation_id.strip():
+            raise ValueError("evaluation_id must be a nonempty string")
+        if self.repetition is not None and (
+            type(self.repetition) is not int or self.repetition < 1
+        ):
+            raise ValueError("repetition must be a positive integer or None for pooled results")
+        identified: list[TestResult] = []
+        seen: set[tuple[int, str]] = set()
+        for result in self.results:
+            case_id = result.case.id
+            if not isinstance(case_id, str) or not case_id.strip():
+                raise ValueError(f"case ID must be a nonempty string: {case_id!r}")
+            evaluation_id = (
+                self.evaluation_id if result.evaluation_id == "" else result.evaluation_id
+            )
+            repetition = result.repetition if result.repetition is not None else self.repetition
+            if evaluation_id != self.evaluation_id:
+                raise ValueError(f"case {case_id!r}: evaluation_id does not match its parent")
+            if type(repetition) is not int or repetition < 1:
+                raise ValueError(f"case {case_id!r}: repetition must be a positive integer")
+            if self.repetition is not None and repetition != self.repetition:
+                raise ValueError(f"case {case_id!r}: repetition does not match its parent")
+            observation = result.observation
+            if observation is not None and (
+                observation.evaluation_id, observation.repetition, observation.case_id
+            ) != (evaluation_id, repetition, case_id):
+                raise ValueError(
+                    f"case {case_id!r}: observation identity does not match its result"
+                )
+            identity = (repetition, case_id)
+            if identity in seen:
+                raise ValueError(
+                    f"duplicate result identity for case {case_id!r}, run {repetition}"
+                )
+            seen.add(identity)
+            identified.append(replace(result, evaluation_id=evaluation_id, repetition=repetition))
+        return identified
 
     @property
     def pass_rate(self) -> float:
@@ -179,7 +219,7 @@ class EvalResults:
                 "total_input_tokens": self.total_input_tokens,
                 "total_output_tokens": self.total_output_tokens,
             },
-            "results": [r.to_dict() for r in self.results],
+            "results": [r.to_dict() for r in self._identified_results()],
         }
         avg_dim = self.avg_dimensions
         if avg_dim:
@@ -188,10 +228,11 @@ class EvalResults:
 
     def save(self, path: str | Path) -> Path:
         """Save results to a JSON file."""
+        data = self.to_dict()
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(self.to_dict(), f, indent=2, default=str)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, default=str)
         return path
 
     def __repr__(self) -> str:
@@ -283,9 +324,18 @@ class MultiRunResults:
     @property
     def combined(self) -> EvalResults:
         """Pool all repetitions for reporting and existing pass-rate/cost checks."""
+        results: list[TestResult] = []
+        repetitions: set[int] = set()
+        for run in self.run_results:
+            if run.evaluation_id != self.evaluation_id:
+                raise ValueError("all runs must share the parent evaluation_id")
+            if run.repetition is None or run.repetition in repetitions:
+                raise ValueError("each run must have a unique, positive repetition")
+            results.extend(run._identified_results())
+            repetitions.add(run.repetition)
         return EvalResults(
             agent_name=self.agent_name, suite_name=self.suite_name,
-            results=[result for run in self.run_results for result in run.results],
+            results=results,
             total_cost=self.total_cost,
             total_time_ms=sum(run.total_time_ms for run in self.run_results),
             total_input_tokens=sum(run.total_input_tokens for run in self.run_results),
@@ -518,9 +568,12 @@ async def evaluate(
     if isinstance(suite, list):
         suite = TestSuite(name="evaluation", cases=suite)
 
-    if repetition < 1:
-        raise ValueError("repetition must be >= 1")
-    if evaluation_id == "":
+    suite.validate_case_ids()
+    if type(repetition) is not int or repetition < 1:
+        raise ValueError("repetition must be a positive integer")
+    if evaluation_id is not None and (
+        not isinstance(evaluation_id, str) or not evaluation_id.strip()
+    ):
         raise ValueError("evaluation_id must not be empty")
 
     scorer = scorer or Scorer()

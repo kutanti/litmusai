@@ -106,9 +106,9 @@ class TestToAssertions:
     def test_json_assertion(self):
         from litmusai.assertions import JsonValid
 
-        gt = GroundTruth(answer_type="json")
+        gt = GroundTruth(answer={}, answer_type="json")
         assertions = gt.to_assertions()
-        assert len(assertions) == 1
+        assert len(assertions) == 2
         assert isinstance(assertions[0], JsonValid)
 
     def test_boolean_assertion(self):

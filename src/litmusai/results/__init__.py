@@ -318,12 +318,24 @@ class DiffSummary:
         return "\n".join(lines)
 
 
-def load_results(path: str | Path) -> dict[str, Any]:
-    """Load evaluation results from a JSON file."""
-    path = Path(path)
-    with open(path) as f:
-        data: dict[str, Any] = json.load(f)
+def normalize_results(data: dict[str, Any]) -> dict[str, Any]:
+    """Read a raw result payload or CLI status envelope without changing it."""
+    if not isinstance(data, dict):
+        raise ValueError("result payload must be a mapping")
+    if isinstance(data.get("results"), dict):
+        data = data["results"]  # CLI status envelope around the shared result payload.
+    if data.get("schema_version", "1.0") != "1.0":
+        raise ValueError(f"Unsupported result schema_version: {data['schema_version']!r}")
+    if not isinstance(data.get("results", []), list):
+        raise ValueError("result rows must be a list")
     return data
+
+
+def load_results(path: str | Path) -> dict[str, Any]:
+    """Load raw results or a CLI status envelope from a UTF-8 JSON file."""
+    with open(path, encoding="utf-8") as f:
+        data: dict[str, Any] = json.load(f)
+    return normalize_results(data)
 
 
 def list_results(
@@ -358,7 +370,7 @@ def list_results(
                     "total_cost", 0,
                 ),
             })
-        except (json.JSONDecodeError, KeyError):
+        except (ValueError, KeyError):
             continue
 
     # Sort by timestamp descending (newest first)
@@ -380,14 +392,24 @@ def diff_results(
         A :class:`DiffSummary` with regressions, improvements, and
         per-case diffs.
     """
+    baseline = normalize_results(baseline)
+    current = normalize_results(current)
     # Index baseline results by case_id
     baseline_cases: dict[str, dict[str, Any]] = {}
     for r in baseline.get("results", []):
+        if r["case_id"] in baseline_cases:
+            raise ValueError(
+                "case-level diff requires one repetition; select a run from run_results"
+            )
         baseline_cases[r["case_id"]] = r
 
     # Index current results
     current_cases: dict[str, dict[str, Any]] = {}
     for r in current.get("results", []):
+        if r["case_id"] in current_cases:
+            raise ValueError(
+                "case-level diff requires one repetition; select a run from run_results"
+            )
         current_cases[r["case_id"]] = r
 
     # Union of all case IDs
