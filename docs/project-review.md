@@ -2,6 +2,8 @@
 
 Reviewed against `7a38b4a` on September 10, 2026. The recommendations below concern implementation behavior, rather than whether a model performs well on the bundled suites.
 
+This is a historical review. Pooled multi-run gates, unified versioned result payloads, and Python runner concurrency validation have since changed. See [feature validation](feature-validation.md) for the current audit and remaining limits.
+
 ## Changes prepared in this review
 
 - **Failed scans:** API failures previously counted as successful safety checks, and conversation steps without assertions passed even when the agent failed. Failed calls now remain failed, with error details and inconclusive scan verdicts.

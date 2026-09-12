@@ -4,6 +4,8 @@ Demonstrates how to use LitmusAI with different agent frameworks.
 """
 
 import asyncio
+import shlex
+import sys
 
 from litmusai import Agent, AgentResponse, AgentStep, TestSuite, ToolCall, evaluate
 
@@ -89,13 +91,17 @@ class MyCustomAgent:
 
 
 async def main():
+    echo_command = (
+        f"{shlex.quote(sys.executable)} -c "
+        f"{shlex.quote('import sys; print(sys.stdin.read())')}"
+    )
     # Create agents from different sources
     agents = {
         "simple": Agent.from_function(simple_agent, name="simple"),
         "rich": Agent.from_function(rich_agent, name="rich", model="gpt-4o"),
         "direct": Agent.from_function(direct_response_agent, name="direct"),
         "custom": Agent.from_callable(MyCustomAgent(), method="run", name="custom"),
-        "echo-cli": Agent.from_cli("cat", name="echo-cli"),
+        "echo-cli": Agent.from_cli(echo_command, name="echo-cli", shell=False),
     }
 
     # Create a test suite

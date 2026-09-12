@@ -19,7 +19,6 @@ from litmusai import Agent, TestSuite, compare
 from litmusai.assertions import Contains, Numeric
 from litmusai.core.suite import TestCase
 
-
 # ─── Build test suite ─────────────────────────────────────────────
 
 suite = TestSuite(name="model-comparison")
@@ -55,7 +54,7 @@ def make_agent(model: str) -> Agent:
     """Create an agent using OpenAI-compatible API."""
     return Agent.from_openai_chat(
         model=model,
-        base_url=os.getenv("OPENAI_BASE_URL"),
+        base_url=os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1",
         api_key=os.getenv("OPENAI_API_KEY", ""),
     )
 
@@ -69,7 +68,7 @@ async def main():
         print("   export OPENAI_API_KEY=sk-...")
         return
 
-    agents = [make_agent(m) for m in models]
+    agents = {model: make_agent(model) for model in models}
     comparison = await compare(agents, suite)
     print(comparison)
 
