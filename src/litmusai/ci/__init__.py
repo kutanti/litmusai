@@ -20,6 +20,7 @@ from litmusai.core.agent import Agent
 from litmusai.core.runner import EvalResults, MultiRunResults, evaluate
 from litmusai.core.scorer import Scorer
 from litmusai.core.suite import TestSuite
+from litmusai.results import load_results, normalize_results
 
 console = Console()
 
@@ -95,10 +96,8 @@ def load_baseline(path: str | Path) -> dict[str, Any] | None:
     if not p.exists():
         return None
     try:
-        from litmusai.results import load_results
-
         return load_results(p)
-    except (ValueError, TypeError, AttributeError):
+    except (ValueError, TypeError):
         return None
 
 
@@ -119,6 +118,8 @@ def compare_with_baseline(
     Returns:
         Dict with comparison details and regression flags.
     """
+    current = normalize_results(current)
+    baseline = normalize_results(baseline)
     curr_summary = current.get("summary", {})
     base_summary = baseline.get("summary", {})
 
@@ -203,6 +204,9 @@ def format_report(
     Returns:
         Formatted report string.
     """
+    data = normalize_results(data)
+    if baseline is not None:
+        baseline = normalize_results(baseline)
     if fmt == "json":
         output: dict[str, Any] = {"results": data}
         if baseline:
@@ -301,6 +305,7 @@ def format_table(
     show_dimensions: bool = False,
 ) -> None:
     """Print results as a rich table to console."""
+    data = normalize_results(data)
     summary = data.get("summary", {})
 
     table = Table(title=f"LitmusAI — {data.get('suite_name', data.get('suite', 'Results'))}")

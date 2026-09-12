@@ -18,6 +18,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from litmusai.results import normalize_results
+
 
 def _esc(text: str) -> str:
     """HTML-escape text content."""
@@ -479,12 +481,13 @@ def render_html(
     """Render evaluation results as a self-contained HTML report.
 
     Args:
-        data: Result dict from ``EvalResults.to_dict()``.
+        data: Result dict from ``EvalResults.to_dict()`` or a CLI status envelope.
         output_path: Where to write the HTML file.
 
     Returns:
         Path to the generated HTML file.
     """
+    data = normalize_results(data)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 

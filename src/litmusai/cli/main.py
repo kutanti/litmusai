@@ -799,8 +799,10 @@ def badges() -> None:
         sys.exit(1)
 
     try:
-        data = json.loads(baseline_path.read_text())
-    except json.JSONDecodeError as e:
+        from litmusai.results import load_results
+
+        data = load_results(baseline_path)
+    except ValueError as e:
         console.print(f"[red]Invalid baseline JSON: {e}[/red]")
         sys.exit(1)
 

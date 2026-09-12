@@ -16,6 +16,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
+from litmusai.results import normalize_results
+
 
 def to_junit_xml(
     data: dict[str, Any],
@@ -24,12 +26,13 @@ def to_junit_xml(
     """Export evaluation results as JUnit XML.
 
     Args:
-        data: Result dict from ``EvalResults.to_dict()``.
+        data: Result dict from ``EvalResults.to_dict()`` or a CLI status envelope.
         output_path: Where to write the XML file.
 
     Returns:
         Path to the generated XML file.
     """
+    data = normalize_results(data)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -109,7 +112,7 @@ def to_csv(
     """Export evaluation results as CSV.
 
     Args:
-        data: Result dict from ``EvalResults.to_dict()``.
+        data: Result dict from ``EvalResults.to_dict()`` or a CLI status envelope.
         output_path: Where to write the CSV file.
 
     Returns:
@@ -117,6 +120,7 @@ def to_csv(
     """
     import csv
 
+    data = normalize_results(data)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -129,7 +133,7 @@ def to_csv(
         "response",
     ]
 
-    with open(output_path, "w", newline="") as f:
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for r in results:

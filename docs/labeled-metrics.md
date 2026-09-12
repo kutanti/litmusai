@@ -42,6 +42,23 @@ CLI threshold/budget checks and GitHub Action outputs use this pooled summary.
 Reports accept both the canonical `agent_name`, `suite_name`, and `case_name`
 fields and the earlier CLI aliases `agent`, `suite`, and `test`.
 
+`Reporter.to_json()` uses the same payload as `EvalResults.to_dict()` and
+`MultiRunResults.to_dict()`. `load_results()`, report readers, and Python
+HTML/JUnit/CSV exporters accept both
+raw result payloads and CLI status envelopes. Unsupported result versions are
+rejected. Multi-run HTML reports give every row its own details panel. Case-level
+diffs require one repetition from each result's `run_results`; passing pooled
+rows with repeated case IDs raises an error instead of discarding earlier runs.
+
+Suite loading and evaluation require nonempty, unique string case IDs, including
+for legacy suites and Python case lists. Invalid IDs fail before agent calls.
+When exporting a manually constructed `EvalResults`, missing row evaluation IDs
+and repetitions inherit the parent values without mutating the row objects.
+Explicit conflicting IDs/repetitions, duplicate result identities, and observation
+identities that disagree with their result are rejected. Pooled rows require
+explicit repetition numbers. Manually assembled `MultiRunResults` must use a
+shared evaluation ID and a unique positive repetition for each child run.
+
 `litmusai.metrics.Observation` is the versioned record used by task metrics. It
 retains case ID, evaluation ID, repetition, task type, expected and predicted
 values, execution/validation status, error, and per-case evidence. Its JSON
@@ -64,6 +81,13 @@ omit the answer. `apply_ground_truth()` retains truth and legacy metadata for
 every matching case without replacing explicit assertions; its return value
 counts cases receiving truth. Metric-enabled suites do not generate implicit
 ground-truth assertions.
+
+The same required-answer rule applies to `GroundTruth.from_dict()`,
+`load_ground_truth()`, `apply_ground_truth()`, and assertion generation. The
+standalone loader rejects explicit malformed truth and duplicate case IDs while
+allowing cases that omit `ground_truth`. Applying truth validates all matching
+entries before changing any case. Use a `JsonValid` assertion directly when only
+JSON syntax matters and there is no expected answer.
 
 This contract is the prerequisite for labeled metrics in issue #100. Dataset
 revisions, content fingerprints, external dataset identities, migration of older
