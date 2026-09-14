@@ -80,8 +80,14 @@ def test_null_schema_and_path_are_distinct_from_parse_failure(monkeypatch, fallb
     assert not JsonPath("a", None).check("{}").passed
 
 
-def test_excessive_nesting_fails_as_a_json_assertion():
-    assert not JsonValid().check("[" * 3000 + "0" + "]" * 3000).passed
+def test_parser_recursion_error_is_a_failed_assertion(monkeypatch):
+    # CPython versions have different JSON recursion limits. Exercise the
+    # failure without relying on a particular interpreter's supported depth.
+    def exhausted_parser(*args, **kwargs):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr("litmusai._json.json.loads", exhausted_parser)
+    assert not JsonValid().check("[]").passed
 
 
 async def test_evaluation_keeps_original_fenced_response_and_dataset_identity():
