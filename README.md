@@ -67,7 +67,7 @@ assert results.passed == 2
 results.save("results.json")
 ```
 
-Expected result: **2/2 cases pass**, and `results.json` contains both responses, scores, and timings. This local function supplies no token or cost metadata, so those totals are zero.
+Expected result: **2/2 cases pass**, and `results.json` contains both responses, scores, and timings. This local function supplies no usage metadata: token counters are zero and cost is unknown. Return `AgentResponse(output=..., cost=0.0)` to explicitly declare a free run.
 
 To call an OpenAI-compatible chat endpoint, replace `agent` with:
 
@@ -194,7 +194,7 @@ litmus run -s tests.yaml -a my_agent.py:agent --format markdown --output run.md
 
 CLI JSON wraps the same versioned payload as `results.save()` in a status envelope. Both can be loaded by `litmus report` and `litmus diff`. Multi-run files retain every repetition; select individual `run_results` entries for a case-level diff.
 
-Chat adapters read token counts from provider responses and calculate cost using the bundled pricing table. These are estimates, not billing records: prices can become outdated, and cached tokens or other provider charges may differ. An unrecognized model can report zero cost when no pricing is available.
+Chat adapters calculate cost when both model pricing and complete input/output token counts are available. Missing pricing or usage produces `None` in Python, `null` in JSON, and “Unknown” in reports. Explicit zero costs remain zero. If any execution has an unknown cost, the total is unknown and `--budget` fails with a diagnostic; unknown costs are also excluded from cost comparisons and the overall quality score. These estimates use registered rates; cached tokens and other provider charges may differ from your bill.
 
 When comparing models, save the suite, model parameters, run count, raw results, and pricing assumptions. The [usage guide](docs/usage.md#cost-and-quality-dimensions) covers custom pricing, `CostTracker`, `CostGuard`, and the seven scoring dimensions available through `--dimensions` and `DimensionBudget`.
 

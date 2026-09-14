@@ -18,6 +18,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from litmusai._cost import format_cost
 from litmusai.results import normalize_results
 
 
@@ -197,7 +198,7 @@ footer a {{ color: var(--blue); text-decoration: none; }}
     </div>
     <div class="card">
         <div class="label">Total Cost</div>
-        <div class="value">${total_cost}</div>
+        <div class="value">{total_cost}</div>
     </div>
     <div class="card">
         <div class="label">Avg Latency</div>
@@ -315,7 +316,12 @@ def _build_dimensions_section(data: dict[str, Any]) -> str:
         "correctness", "completeness", "format",
         "relevance", "safety", "latency", "cost",
     ]
-    values = [dims.get(k, 0) for k in keys]
+    missing = [(label, key) for label, key in zip(labels, keys) if dims.get(key) is None]
+    labels, keys = ([label for label, key in zip(labels, keys) if dims.get(key) is not None],
+                    [key for key in keys if dims.get(key) is not None])
+    values = [dims[k] for k in keys]
+    if not values:
+        return "<h2>Quality Dimensions</h2><p>Scores unavailable.</p>"
     overall = dims.get("overall", 0)
 
     # Build SVG radar chart (self-contained, no external libs)
@@ -366,7 +372,11 @@ def _build_dimensions_section(data: dict[str, Any]) -> str:
 
     # Dimension detail rows
     detail_keys = dims.get("details", {})
-    table_rows = ""
+    table_rows = "".join(
+        f"<tr><td>{_esc(label)}</td><td>Unknown</td><td></td>"
+        f"<td>{_esc(str(detail_keys.get(key, 'Excluded from overall score')))}</td></tr>"
+        for label, key in missing
+    )
     for label, key, v in zip(labels, keys, values):
         color = _score_color(v)
         detail = _esc(str(detail_keys.get(key, "")))
@@ -432,7 +442,7 @@ def _make_row(idx: int, r: dict[str, Any]) -> str:
     score_pct = score * 100
     color = _score_color(score)
     latency = r.get("latency_ms", 0)
-    cost = r.get("cost", 0)
+    cost = r.get("cost")
     case_id = r.get("case_id", f"case_{idx}")
     safe_id = f"{_safe_id(case_id)}-{idx}"
     case_name = _esc(r.get("case_name", case_id))
@@ -453,6 +463,7 @@ def _make_row(idx: int, r: dict[str, Any]) -> str:
                 json.dumps(r[key], ensure_ascii=False, indent=2)
             ) + "</pre>"
 
+    cost_sort = f"{cost:.6f}" if cost is not None else ""
     row = (
         f'<tr class="result-row" data-status="{"pass" if passed else "fail"}" '
         f'data-safeid="{safe_id}">'
@@ -464,7 +475,7 @@ def _make_row(idx: int, r: dict[str, Any]) -> str:
         f'style="width:{score_pct}%;background:var(--{color})"></span></span>'
         f"{score:.2f}</td>"
         f'<td data-value="{latency:.1f}">{latency:.0f}ms</td>'
-        f'<td data-value="{cost:.6f}">${cost:.4f}</td>'
+        f'<td data-value="{cost_sort}">{format_cost(cost)}</td>'
         f"</tr>"
     )
 
@@ -539,7 +550,7 @@ def render_html(
         passed=passed,
         failed=failed,
         avg_score=f"{summary.get('avg_score', 0):.2f}",
-        total_cost=f"{summary.get('total_cost', 0):.4f}",
+        total_cost=format_cost(summary.get("total_cost")),
         avg_latency=f"{summary.get('avg_latency_ms', 0):.0f}ms",
         total_tokens=f"{total_in + total_out:,}",
         input_tokens=f"{total_in:,}",

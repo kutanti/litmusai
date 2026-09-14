@@ -37,13 +37,14 @@ Example:
 
 from __future__ import annotations
 
-import json as _json
 import math
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+from litmusai._json import parse_json_output
 
 # ─── Result ──────────────────────────────────────────────────────
 
@@ -521,46 +522,6 @@ class Numeric(Assertion):
 # ─── Structured Assertions ───────────────────────────────────────
 
 
-def _extract_json(text: str) -> Any:
-    """Extract JSON from a response that may contain markdown fences."""
-    # Try raw parse first
-    try:
-        return _json.loads(text.strip())
-    except (ValueError, TypeError):
-        pass
-
-    # Try extracting from markdown code block
-    fence_re = re.compile(
-        r"```(?:json)?\s*\n?(.*?)\n?\s*```", re.DOTALL,
-    )
-    m = fence_re.search(text)
-    if m:
-        try:
-            return _json.loads(m.group(1).strip())
-        except (ValueError, TypeError):
-            pass
-
-    # Try finding first { or [ and matching
-    for start_char, end_char in [("{", "}"), ("[", "]")]:
-        start = text.find(start_char)
-        if start == -1:
-            continue
-        depth = 0
-        for i in range(start, len(text)):
-            if text[i] == start_char:
-                depth += 1
-            elif text[i] == end_char:
-                if depth > 0:
-                    depth -= 1
-                if depth == 0:
-                    try:
-                        return _json.loads(text[start:i + 1])
-                    except (ValueError, TypeError):
-                        break
-
-    return None
-
-
 class JsonValid(Assertion):
     """Check that the response is valid JSON.
 
@@ -574,8 +535,11 @@ class JsonValid(Assertion):
     def check(
         self, response: str, *, context: dict[str, Any] | None = None,
     ) -> AssertionResult:
-        parsed = _extract_json(response)
-        if parsed is not None:
+        try:
+            parsed = parse_json_output(response)
+        except ValueError:
+            pass
+        else:
             kind = type(parsed).__name__
             return AssertionResult(
                 passed=True, score=1.0,
@@ -617,8 +581,9 @@ class JsonSchema(Assertion):
     def check(
         self, response: str, *, context: dict[str, Any] | None = None,
     ) -> AssertionResult:
-        parsed = _extract_json(response)
-        if parsed is None:
+        try:
+            parsed = parse_json_output(response)
+        except ValueError:
             return AssertionResult(
                 passed=False, score=0.0,
                 reason="Response is not valid JSON",
@@ -666,7 +631,7 @@ class JsonSchema(Assertion):
             type_map: dict[str, type | tuple[type, ...]] = {
                 "object": dict, "array": list, "string": str,
                 "number": (int, float), "integer": int,
-                "boolean": bool,
+                "boolean": bool, "null": type(None),
             }
             py_type = type_map.get(expected_type)
             if py_type is not None and not isinstance(data, py_type):
@@ -743,8 +708,9 @@ class JsonPath(Assertion):
     def check(
         self, response: str, *, context: dict[str, Any] | None = None,
     ) -> AssertionResult:
-        parsed = _extract_json(response)
-        if parsed is None:
+        try:
+            parsed = parse_json_output(response)
+        except ValueError:
             return AssertionResult(
                 passed=False, score=0.0,
                 reason="Response is not valid JSON",
@@ -782,6 +748,8 @@ class JsonPath(Assertion):
 
     def _resolve(self, data: Any, path: str) -> Any:
         """Walk dot-path to extract value."""
+        if not path:
+            return data
         current = data
         parts = path.split(".")
         for part in parts:
@@ -1120,7 +1088,7 @@ class LLMGrade(AsyncAssertion):
     def _parse_reply(reply: str) -> tuple[int, str]:
         """Extract score and reason from LLM reply."""
         try:
-            parsed = _extract_json(reply)
+            parsed = parse_json_output(reply)
             if isinstance(parsed, dict):
                 score = int(parsed.get("score", 0))
                 reason = str(parsed.get("reason", ""))

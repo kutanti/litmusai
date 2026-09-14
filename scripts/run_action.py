@@ -48,7 +48,7 @@ def main() -> int:
     outputs = {
         "results-path": results_path.as_posix(),
         "pass-rate": summary["pass_rate"],
-        "total-cost": summary["total_cost"],
+        "total-cost": summary["total_cost"] if summary.get("total_cost") is not None else "unknown",
         "passed": summary["passed"],
         "failed": summary["failed"],
         "has-regression": str(data.get("has_regression", False)).lower(),

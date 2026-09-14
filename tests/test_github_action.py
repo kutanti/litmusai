@@ -81,6 +81,21 @@ def test_failed_evaluation_keeps_outputs_and_comment(action_run, monkeypatch):
     assert "FAILED" in Path(outputs["comment-path"]).read_text(encoding="utf-8")
 
 
+def test_unknown_cost_output_is_explicit(action_run, monkeypatch):
+    def run(args, *, check):
+        write_results()
+        path = Path(".litmus/results.json")
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["results"]["summary"]["total_cost"] = None
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return subprocess.CompletedProcess(args, 1)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    assert action_run() == 1
+    outputs = dict(line.split("=", 1) for line in Path("outputs").read_text().splitlines())
+    assert outputs["total-cost"] == "unknown"
+
+
 @pytest.mark.parametrize("exit_code", [0, 1])
 def test_missing_results_do_not_reuse_stale_files(action_run, monkeypatch, exit_code):
     write_results()

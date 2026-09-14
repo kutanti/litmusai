@@ -105,6 +105,23 @@ Values at or below a target score 1; values at or above its maximum score 0; int
 litmus run -s tests.yaml -a my_agent.py:agent --dimensions
 ```
 
+An unavailable cost is `None` in Python and `null` in JSON. The cost dimension is
+also `None` and is excluded when weighting the overall score. If any repetition
+has an unknown cost, the pooled cost and cost dimension are unknown. Reports show
+“Unknown”; CSV, JUnit, and the GitHub Action's `total-cost` output use `unknown`.
+`--budget` fails when a total cannot be estimated, and its JSON status envelope
+includes a `budget_check` object with the limit, total, verdict, and reason.
+
+Custom functions and HTTP endpoints must supply a cost to claim a priced run.
+Use `AgentResponse(output="...", cost=0.0)` or `{"output": "...", "cost": 0.0}` for
+an explicitly free execution. Chat adapters require registered pricing and both
+input and output token counts; absent, partial, or invalid usage is unknown.
+Explicit zero token counts with registered pricing remain a known zero cost.
+
+Code that formats or adds costs must now handle `None`. Saved numeric costs from
+older versions remain readable, including zero; their historical availability
+cannot be reconstructed. Re-run evaluations to obtain the corrected estimates.
+
 Custom deployment names may not match bundled pricing. Register your verified rates before evaluating, in USD per million tokens:
 
 ```python
@@ -115,6 +132,11 @@ register_pricing("my-deployment", input_cost_per_m=1.0, output_cost_per_m=4.0)
 ```
 
 `CostTracker` records per-task usage, cost per successful task, and latency percentiles. `CostGuard` checks a tracker against cost, token, and latency limits and returns alerts. `compare_models(*trackers)` produces Markdown, JSON, and CSV comparisons. These are explicit Python utilities; registering a guard does not automatically attach it to `evaluate()`.
+
+`CostGuard` returns an error when a configured cost limit cannot be checked due
+to an unknown estimate. Cost-based model recommendations exclude unpriced runs;
+pass rate and latency remain available. Baseline comparisons report an unavailable
+cost delta when either total is unknown, while still comparing pass rate and latency.
 
 ## Configuration and profiles
 

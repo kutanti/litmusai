@@ -25,6 +25,16 @@ selects an array element, and `""` selects the JSON root. Escape literal `/` and
 `~` in property names as `~1` and `~0`. Classification without a pointer reads the
 literal response text. Extraction always reads JSON.
 
+JSON predictions and the `JsonValid`, `JsonSchema`, and `JsonPath` assertions use
+the same parsing rule: the entire response must be one finite JSON value, optionally
+inside a single outer triple-backtick code fence. The fence can have a `json` marker
+and must place its contents on separate lines. Surrounding whitespace is accepted;
+surrounding commentary, multiple answers, malformed JSON, and non-finite numbers
+are rejected. Assertions no longer select a JSON fragment from prose.
+
+Parsing does not alter the saved response text. `null` is valid JSON for assertions;
+task metrics still enforce their required prediction type and configured labels.
+
 Saved evaluation results add `schema_version: "1.0"`, `evaluation_id` and
 `repetition` to the existing result structure. Repetition numbers start at one;
 all runs from `multi_evaluate` share an evaluation ID. Multi-run exports retain

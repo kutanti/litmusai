@@ -118,7 +118,8 @@ async def main():
 
         results = await evaluate(agent, suite, verbose=True)
         print(f"Pass rate: {results.pass_rate:.0%}")
-        print(f"Total cost: ${results.total_cost:.4f}")
+        cost = f"${results.total_cost:.4f}" if results.total_cost is not None else "Unknown"
+        print(f"Total cost: {cost}")
         print(f"Avg latency: {results.avg_latency_ms:.0f}ms")
 
 

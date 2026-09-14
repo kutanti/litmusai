@@ -6,6 +6,9 @@ All notable changes to LitmusAI will be documented in this file.
 
 ### Fixed
 
+- JSON assertions and task metrics accept the same complete JSON answer, optionally in one outer code fence. Assertions reject surrounding prose and multiple answers, accept JSON `null`, and reject non-finite numbers. Saved responses remain unchanged.
+- Unavailable model pricing or incomplete token usage produces an unknown cost instead of zero. Unknown costs propagate through repetitions, conversations, reports, exports, and comparisons; CLI budgets and `CostGuard` fail when a required estimate is unavailable.
+- Cost fields now accept `None` (`null` in JSON). Explicit zero costs remain valid. Unknown cost dimensions are excluded from the overall score, and cost comparisons exclude unavailable estimates. Legacy saved numeric costs remain readable.
 - The command printed by `litmus init` now uses the generated suite's file path and a file-based agent reference.
 - CLI Markdown exports use UTF-8, including baseline comparison arrows and Unicode suite names on Windows.
 - The model-comparison example supplies a name-to-agent mapping and a default chat API URL.

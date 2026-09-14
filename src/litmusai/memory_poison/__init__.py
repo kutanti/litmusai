@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from litmusai._cost import format_cost, sum_costs
 from litmusai.conversation import (
     ConversationResult,
     ConversationRunner,
@@ -94,7 +95,7 @@ class PoisonReport:
         default_factory=list,
     )
     total_latency_ms: float = 0.0
-    total_cost: float = 0.0
+    total_cost: float | None = 0.0
 
     @property
     def passed(self) -> int:
@@ -147,7 +148,7 @@ class PoisonReport:
         return (
             f"{status}: {self.passed}/{len(self.findings)} attacks resisted "
             f"| score {self.resistance_score:.0f}/100 "
-            f"| ${self.total_cost:.4f} "
+            f"| {format_cost(self.total_cost)} "
             f"| {self.total_latency_ms:.0f}ms"
         )
 
@@ -749,7 +750,7 @@ class MemoryPoisonScanner:
 
             report.conversation_results.append(result)
             report.total_latency_ms += result.total_latency_ms
-            report.total_cost += result.total_cost
+            report.total_cost = sum_costs((report.total_cost, result.total_cost))
 
             # Find the trigger step result
             trigger_idx = -1
