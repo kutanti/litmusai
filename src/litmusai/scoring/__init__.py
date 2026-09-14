@@ -3,7 +3,7 @@
 Provides :class:`ScoreVector` with 7 quality dimensions:
 correctness, completeness, format, relevance, safety, latency, cost.
 
-Each dimension is a 0.0–1.0 float.  A configurable weighted
+Each available dimension is a 0.0–1.0 float; unknown cost is None.  A configurable weighted
 composite produces the ``overall`` score.
 
 Example::
@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from typing import Any
+
+from litmusai._cost import read_cost, sum_costs
 
 # Default dimension weights — correctness-heavy, cost/latency secondary.
 DEFAULT_WEIGHTS: dict[str, float] = {
@@ -86,7 +88,7 @@ class DimensionBudget:
 class ScoreVector:
     """Multi-dimensional quality score.
 
-    Each dimension is a 0.0–1.0 float. Call :meth:`compute_overall`
+    Each available dimension is a 0.0–1.0 float; unknown cost is None. Call :meth:`compute_overall`
     to produce a weighted composite.
 
     Attributes:
@@ -107,14 +109,14 @@ class ScoreVector:
     relevance: float = 0.0
     safety: float = 0.0
     latency: float = 0.0
-    cost: float = 0.0
+    cost: float | None = None
     overall: float = 0.0
     details: dict[str, str] = field(default_factory=dict)
 
     def compute_overall(
         self, weights: dict[str, float] | None = None,
     ) -> float:
-        """Compute weighted composite from all dimensions.
+        """Compute weighted composite from available dimensions.
 
         Args:
             weights: Custom weights per dimension.
@@ -129,14 +131,15 @@ class ScoreVector:
             w.update(weights)
 
         # Normalize weights to sum to 1.0
-        total = sum(w.get(d, 0) for d in DIMENSIONS)
+        available = [d for d in DIMENSIONS if getattr(self, d) is not None]
+        total = sum(w.get(d, 0) for d in available)
         if total <= 0:
             self.overall = 0.0
             return 0.0
 
         self.overall = sum(
             getattr(self, dim) * (w.get(dim, 0) / total)
-            for dim in DIMENSIONS
+            for dim in available
         )
         return self.overall
 
@@ -157,7 +160,7 @@ class ScoreVector:
             if k in valid_fields
         })
 
-    def dimension_table(self) -> list[tuple[str, float, str]]:
+    def dimension_table(self) -> list[tuple[str, float | None, str]]:
         """Return list of (name, score, detail) tuples for display."""
         return [
             (dim, getattr(self, dim), self.details.get(dim, ""))
@@ -284,13 +287,12 @@ def build_score_vector(
     details["latency"] = f"{latency_ms:.0f}ms (budget: {budget.latency_ms:.0f}ms)"
 
     # Cost
-    cost_val = getattr(response, "cost", 0.0) or 0.0
-    cost = budget.score_cost(cost_val)
-    if cost_val > 0:
-        details["cost"] = f"${cost_val:.4f} (budget: ${budget.cost_usd:.4f})"
-    else:
-        cost = 1.0
-        details["cost"] = "No cost data"
+    cost_val = read_cost(getattr(response, "cost", None))
+    cost = budget.score_cost(cost_val) if cost_val is not None else None
+    details["cost"] = (
+        f"${cost_val:.4f} (budget: ${budget.cost_usd:.4f})" if cost_val is not None
+        else "Unknown cost; excluded from overall score"
+    )
 
     vector = ScoreVector(
         correctness=correctness,
@@ -323,6 +325,7 @@ def aggregate_vectors(
         return ScoreVector()
 
     n = len(vectors)
+    cost_total = sum_costs(v.cost for v in vectors)
     avg = ScoreVector(
         correctness=sum(v.correctness for v in vectors) / n,
         completeness=sum(v.completeness for v in vectors) / n,
@@ -330,8 +333,10 @@ def aggregate_vectors(
         relevance=sum(v.relevance for v in vectors) / n,
         safety=sum(v.safety for v in vectors) / n,
         latency=sum(v.latency for v in vectors) / n,
-        cost=sum(v.cost for v in vectors) / n,
+        cost=cost_total / n if cost_total is not None else None,
     )
+    if cost_total is None:
+        avg.details["cost"] = "Unknown cost in one or more runs; excluded from overall score"
     avg.compute_overall(weights)
     return avg
 

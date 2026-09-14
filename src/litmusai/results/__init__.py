@@ -324,6 +324,7 @@ def normalize_results(data: dict[str, Any]) -> dict[str, Any]:
     Canonical fields take precedence, even when empty. Missing stable identities
     stay absent; display names cannot reconstruct them.
     """
+    from litmusai._cost import read_cost
     from litmusai.datasets import DatasetInfo, SourceReference, snapshot_json
 
     if not isinstance(data, dict):
@@ -346,6 +347,8 @@ def normalize_results(data: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(row, dict):
                 raise ValueError("each result row must be a mapping")
             normalized_row = dict(row)
+            if "cost" in row:
+                normalized_row["cost"] = read_cost(row["cost"])
             for field in ("inputs", "metadata", "ground_truth", "response_metadata"):
                 if field in row:
                     normalized_row[field] = snapshot_json(row[field], f"result {field}")
@@ -363,6 +366,17 @@ def normalize_results(data: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(data["run_results"], list):
             raise ValueError("run_results must be a list")
         normalized["run_results"] = [normalize_results(run) for run in data["run_results"]]
+    if "summary" in normalized:
+        summary = dict(normalized["summary"])
+        if "total_cost" in summary:
+            summary["total_cost"] = read_cost(summary["total_cost"])
+            if (any("cost" in row and row["cost"] is None
+                    for row in normalized.get("results", []))
+                    or any("total_cost" in run.get("summary", {})
+                           and run["summary"]["total_cost"] is None
+                           for run in normalized.get("run_results", []))):
+                summary["total_cost"] = None
+        normalized["summary"] = summary
     return normalized
 
 
@@ -402,7 +416,7 @@ def list_results(
                 "total": data.get("summary", {}).get("total", 0),
                 "passed": data.get("summary", {}).get("passed", 0),
                 "total_cost": data.get("summary", {}).get(
-                    "total_cost", 0,
+                    "total_cost",
                 ),
             })
         except (ValueError, KeyError):

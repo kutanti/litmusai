@@ -26,6 +26,7 @@ from uuid import uuid4
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
+from litmusai._cost import format_cost, round_cost, sum_costs
 from litmusai.core.agent import Agent, AgentResponse
 from litmusai.core.scorer import Scorer, ScoreResult
 from litmusai.core.suite import TestCase, TestSuite
@@ -58,7 +59,7 @@ class TestResult:
     score: ScoreResult
     passed: bool
     latency_ms: float
-    cost: float = 0.0
+    cost: float | None = None
     input_tokens: int = 0
     output_tokens: int = 0
     dimensions: ScoreVector | None = None
@@ -107,7 +108,7 @@ class EvalResults:
     agent_name: str
     suite_name: str
     results: list[TestResult] = field(default_factory=list)
-    total_cost: float = 0.0
+    total_cost: float | None = 0.0
     total_time_ms: float = 0.0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
@@ -117,6 +118,10 @@ class EvalResults:
     repetition: int | None = 1
     metric_config: MetricConfig | None = None
     dataset: DatasetInfo | None = None
+
+    def __post_init__(self) -> None:
+        if any(result.cost is None for result in self.results):
+            self.total_cost = None
 
     @property
     def metrics(self) -> dict[str, Any] | None:
@@ -210,7 +215,7 @@ class EvalResults:
         parts = [
             f"{self.passed}/{len(self.results)} passed",
             f"{self.failed} failed",
-            f"${self.total_cost:.4f}",
+            f"{format_cost(self.total_cost)}",
             f"{self.avg_latency_ms:.0f}ms avg",
         ]
         if self.total_input_tokens > 0:
@@ -237,7 +242,7 @@ class EvalResults:
                 "pass_rate": round(self.pass_rate, 4),
                 "avg_score": round(self.avg_score, 4),
                 "avg_latency_ms": round(self.avg_latency_ms, 1),
-                "total_cost": round(self.total_cost, 6),
+                "total_cost": round_cost(self.total_cost),
                 "total_input_tokens": self.total_input_tokens,
                 "total_output_tokens": self.total_output_tokens,
             },
@@ -277,7 +282,7 @@ class CaseStats:
     n_passed: int = 0
     scores: list[float] = field(default_factory=list)
     latencies: list[float] = field(default_factory=list)
-    costs: list[float] = field(default_factory=list)
+    costs: list[float | None] = field(default_factory=list)
 
     @property
     def pass_rate(self) -> float:
@@ -400,8 +405,8 @@ class MultiRunResults:
         return float(variance ** 0.5)
 
     @property
-    def total_cost(self) -> float:
-        return sum(r.total_cost for r in self.run_results)
+    def total_cost(self) -> float | None:
+        return sum_costs(r.total_cost for r in self.run_results)
 
     @property
     def flaky_tests(self) -> list[CaseStats]:
@@ -414,7 +419,7 @@ class MultiRunResults:
         parts = [
             f"{self.n_runs} runs",
             f"Pass rate: {self.mean_pass_rate:.0%} ±{self.std_pass_rate:.1%}",
-            f"${self.total_cost:.4f} total",
+            f"{format_cost(self.total_cost)} total",
         ]
         if self.flaky_tests:
             parts.append(f"{len(self.flaky_tests)} flaky")
@@ -465,7 +470,7 @@ class MultiRunResults:
                 **combined["summary"],
                 "mean_pass_rate": round(self.mean_pass_rate, 4),
                 "std_pass_rate": round(self.std_pass_rate, 4),
-                "total_cost": round(self.total_cost, 6),
+                "total_cost": round_cost(self.total_cost),
                 "flaky_count": len(self.flaky_tests),
             },
             "case_stats": {
@@ -686,7 +691,7 @@ async def evaluate(
 
     def _accumulate(result: TestResult) -> None:
         results.results.append(result)
-        results.total_cost += result.cost
+        results.total_cost = sum_costs((results.total_cost, result.cost))
         results.total_time_ms += result.latency_ms
         # Use split tokens when available, fall back to tokens_used
         inp = result.input_tokens
@@ -793,7 +798,7 @@ async def compare(
                 name,
                 f"{result.pass_rate:.0%}",
                 f"{result.avg_score:.2f}",
-                f"${result.total_cost:.4f}",
+                f"{format_cost(result.total_cost)}",
                 str(total_tok) if total_tok > 0 else "-",
                 f"{result.avg_latency_ms:.0f}ms",
             )

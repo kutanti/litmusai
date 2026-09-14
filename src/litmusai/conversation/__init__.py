@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from litmusai._cost import format_cost, round_cost, sum_costs
+
 if TYPE_CHECKING:
     from litmusai.assertions import Assertion
     from litmusai.core.agent import Agent, AgentResponse
@@ -77,7 +79,7 @@ class StepResult:
     score: float
     reason: str = ""
     latency_ms: float = 0.0
-    cost: float = 0.0
+    cost: float | None = None
     is_cascade: bool = False
     assertion_details: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
@@ -152,7 +154,7 @@ class ConversationResult:
     cascade_failures: int = 0
     independent_failures: int = 0
     context_maintained: bool = True
-    total_cost: float = 0.0
+    total_cost: float | None = 0.0
     total_latency_ms: float = 0.0
     passed: bool = True
 
@@ -172,7 +174,7 @@ class ConversationResult:
             parts.append(f"{self.cascade_failures} cascade")
         if self.independent_failures > 0:
             parts.append(f"{self.independent_failures} independent")
-        parts.append(f"${self.total_cost:.4f}")
+        parts.append(f"{format_cost(self.total_cost)}")
         parts.append(f"{self.total_latency_ms:.0f}ms")
         return " | ".join(parts)
 
@@ -189,7 +191,7 @@ class ConversationResult:
             "cascade_failures": self.cascade_failures,
             "independent_failures": self.independent_failures,
             "context_maintained": self.context_maintained,
-            "total_cost": round(self.total_cost, 6),
+            "total_cost": round_cost(self.total_cost),
             "total_latency_ms": round(self.total_latency_ms, 1),
             "passed": self.passed,
             "steps": [s.to_dict() for s in self.steps],
@@ -348,7 +350,7 @@ class ConversationRunner:
                 )
 
                 result.steps.append(step_result)
-                result.total_cost += response.cost
+                result.total_cost = sum_costs((result.total_cost, response.cost))
                 result.total_latency_ms += response.latency_ms
 
                 if score.passed:

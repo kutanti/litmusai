@@ -199,6 +199,7 @@ def test_python_readers_accept_pooled_cli_payloads(tmp_path, pooled_payload, wra
         assert properties == {
             "evaluation_id": "eval", "case_id": "café", "repetition": str(repetition),
             "metadata": "{}", "response_metadata": "{}",
+            "cost": "unknown",
         }
     assert len(xml.findall(".//failure")) == 1
     with to_csv(data, tmp_path / "report.csv").open(encoding="utf-8", newline="") as f:

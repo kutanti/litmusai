@@ -126,12 +126,12 @@ class TestTaskMetrics:
         m = TaskMetrics(task_id="t1", model="unknown-model",
                         input_tokens=1000, output_tokens=500)
         cost = m.compute_cost()
-        assert cost == 0.0  # No pricing found
+        assert cost is None  # No pricing found
 
     def test_defaults(self):
         m = TaskMetrics(task_id="t1")
         assert not m.passed
-        assert m.cost == 0.0
+        assert m.cost is None
         assert m.latency_ms == 0.0
 
 
@@ -257,7 +257,7 @@ class TestCostTracker:
         t = CostTracker()
         assert t.pricing is None
         m = t.record("t1", input_tokens=1000, output_tokens=500, passed=True)
-        assert m.cost == 0.0
+        assert m.cost is None
 
 
 # ─── Test CostGuard ───────────────────────────────────────────────

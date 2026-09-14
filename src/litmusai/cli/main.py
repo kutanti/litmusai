@@ -14,6 +14,7 @@ from rich.console import Console
 from rich.table import Table
 
 from litmusai import __version__
+from litmusai._cost import format_cost
 
 console = Console()
 
@@ -370,7 +371,7 @@ def history(log_dir: str, limit: int) -> None:
             e["timestamp"],
             f"[{color}]{rate_str}[/{color}]",
             f"{e['passed']}/{e['total']}",
-            f"${e['total_cost']:.4f}",
+            f"{format_cost(e['total_cost'])}",
             e["filename"],
         )
 

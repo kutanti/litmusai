@@ -9,6 +9,8 @@ from typing import Any
 from rich.console import Console
 from rich.table import Table
 
+from litmusai._cost import format_cost
+
 console = Console()
 
 
@@ -33,7 +35,7 @@ class Reporter:
                 r.case.name,
                 status,
                 f"{r.latency_ms:.0f}ms",
-                f"${r.cost:.4f}",
+                f"{format_cost(r.cost)}",
                 r.score.reason,
             )
 
@@ -67,7 +69,7 @@ class Reporter:
             f"- Passed: {results.passed}/{len(results.results)}",
             f"- Failed: {results.failed}",
             f"- Pass Rate: {results.pass_rate:.0%}",
-            f"- Total Cost: ${results.total_cost:.4f}",
+            f"- Total Cost: {format_cost(results.total_cost)}",
             f"- Avg Latency: {results.avg_latency_ms:.0f}ms",
             "\n## Results\n",
             "| # | Test | Status | Latency | Cost |",
@@ -77,7 +79,7 @@ class Reporter:
         for i, r in enumerate(results.results, 1):
             status = "PASS" if r.passed else "FAIL"
             lines.append(
-                f"| {i} | {r.case.name} | {status} | {r.latency_ms:.0f}ms | ${r.cost:.4f} |"
+                f"| {i} | {r.case.name} | {status} | {r.latency_ms:.0f}ms | {format_cost(r.cost)} |"
             )
 
         if results.metrics:
