@@ -31,6 +31,10 @@ Requires Python 3.10 or newer. Install the `litmuseval` package and import it as
 pip install litmuseval
 ```
 
+For the 1.0.0 release, use `pip install --upgrade litmuseval==1.0.0`.
+See the [release notes and migration guidance](CHANGELOG.md#100---2026-09-17)
+for changes since the last published release, 0.4.0.
+
 The package is **`litmuseval`**, the Python import is **`litmusai`**, and the command is **`litmus`**. Local assertions and HTTP/chat adapters work with the base installation. For full JSON Schema validation, also run `pip install jsonschema`. Framework integrations need their framework's dependencies; see [adapters](docs/adapters.md).
 
 This README describes the current repository. To install that version, including the latest merged fixes, use Git:
@@ -322,7 +326,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: kutanti/litmusai@v0.5.0
+      - uses: kutanti/litmusai@v1.0.0
         id: evaluation
         with:
           suite: tests.yaml

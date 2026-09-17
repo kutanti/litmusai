@@ -25,3 +25,19 @@ python scripts/check_commit_messages.py --base origin/main --head HEAD --title "
 ```
 
 The check applies to new commits. Existing commit messages and dates are preserved.
+
+## Releases
+
+Keep the version in `pyproject.toml` and `src/litmusai/__init__.py` identical.
+Update the README's pinned installation and GitHub Action tag, and add dated
+release notes, migration guidance, and comparison links to `CHANGELOG.md`.
+Package versions and result/dataset schema versions are independent.
+
+For 1.0.0, merge the release PR and wait for CI to pass on the merged commit.
+Then create a GitHub release named `v1.0.0` with a new `v1.0.0` tag targeting
+that exact commit. Copy the 1.0.0 changelog notes into the release description.
+Do not move existing release tags or tag the pre-merge PR branch.
+Publishing the GitHub release triggers `.github/workflows/publish.yml`, which
+builds, checks, and publishes the package to PyPI through trusted publishing.
+Verify that the release tag, `litmuseval` package version, and `litmus --version`
+all identify 1.0.0 before announcing the release.
