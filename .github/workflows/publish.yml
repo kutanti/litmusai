@@ -4,14 +4,64 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
 
 jobs:
-  publish:
+  release:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Release the tested 1.0.0 merge
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: python scripts/release_1_0_0.py
+
+  publish:
+    needs: release
+    if: >-
+      !cancelled() &&
+      (github.event_name != 'workflow_run' ||
+       (needs.release.result == 'success' && needs.release.outputs.sha != ''))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
       id-token: write  # trusted publishing
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.sha || github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
@@ -28,3 +78,5 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true

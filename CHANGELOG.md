@@ -4,6 +4,43 @@ All notable changes to LitmusAI will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-17
+
+This major release consolidates the changes since the last tagged GitHub release,
+0.4.0, including the fixes recorded under 0.5.0 below. The version bump itself
+does not introduce additional runtime changes.
+
+### Added
+
+- Labeled single-label classification metrics: confusion matrices, accuracy, and per-class, micro, macro, and weighted precision, recall, and F1.
+- Extraction metrics for entity lists and field mappings, with one-to-one matching and per-case evidence.
+- Versioned observations and suite/result payloads with evaluation IDs, case IDs, and repetition numbers.
+- Dataset identity, revisions, content fingerprints, source references, and structured test-case inputs, preserved through suite round-trips and result exports.
+
+### Changed
+
+- Package and CLI versions are now 1.0.0; the GitHub release and README Action reference use `v1.0.0`. The package name remains `litmuseval`, the import remains `litmusai`, and the command remains `litmus`.
+- CLI and Python results share a versioned serializer. Result readers and HTML, JUnit, and CSV exporters accept raw payloads and CLI status envelopes.
+- Multi-run CLI gates, cost checks, and pipeline evaluation summaries use pooled results across repetitions. Reports and exports preserve individual run identities; automatic baseline comparisons select repetition 1.
+- JSON assertions and task metrics share strict complete-answer parsing. Unknown costs propagate as `None`/`null` rather than zero, and required budget checks fail when cost is unavailable.
+
+### Migration from 0.x
+
+- Install with `pip install --upgrade litmuseval==1.0.0` and pin GitHub Actions to `kutanti/litmusai@v1.0.0`. Python 3.10 or newer is still required.
+- Update custom result consumers for nullable costs and versioned payloads. Canonical names are `agent_name`, `suite_name`, and `case_name`; CLI JSON still wraps the result under `results`. Legacy result files remain readable.
+- For case-level diffs of repeated evaluations, select one entry from `run_results`; pooled rows with duplicate case IDs cannot be compared directly.
+- Review multi-run thresholds and budgets because they now evaluate pooled results instead of a single repetition.
+- Pass structured `inputs` through an adapter that supports them; text-only chat adapters reject them rather than silently ignoring them.
+- Result and dataset schema versions remain `"1.0"` and are independent of the package version.
+
+### Known limitations
+
+- Precision, recall, and F1 are reported metrics, not named-metric release gates; existing thresholds still apply to assertion pass rates.
+- Cost estimates depend on available model pricing and token usage. Safety and memory scans are heuristic checks, not safety guarantees.
+
+See the [labeled metrics guide](docs/labeled-metrics.md), [dataset guide](docs/datasets.md),
+and [feature validation report](docs/feature-validation.md) for contracts and limits.
+
 ## [0.5.0] - 2026-09-17
 
 ### Fixed
@@ -143,8 +180,9 @@ All notable changes to LitmusAI will be documented in this file.
 - GitHub Actions CI (lint + test + type check)
 - Copilot auto-review on PRs
 
-[Unreleased]: https://github.com/kutanti/litmusai/compare/v0.5.0...HEAD
-[0.5.0]: https://github.com/kutanti/litmusai/compare/v0.4.0...v0.5.0
+[Unreleased]: https://github.com/kutanti/litmusai/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/kutanti/litmusai/compare/v0.4.0...v1.0.0
+[0.5.0]: https://github.com/kutanti/litmusai/compare/v0.4.0...cf467cb
 [0.4.0]: https://github.com/kutanti/litmusai/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kutanti/litmusai/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/kutanti/litmusai/compare/v0.2.0...v0.2.1

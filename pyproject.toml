@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "litmuseval"
-version = "0.5.0"
+version = "1.0.0"
 description = "Test suites, assertions, and reports for AI agent evaluation"
 readme = "README.md"
 license = "MIT"
