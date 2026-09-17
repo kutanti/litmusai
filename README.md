@@ -33,7 +33,7 @@ pip install litmuseval
 
 For the 1.0.0 release, use `pip install --upgrade litmuseval==1.0.0`.
 See the [release notes and migration guidance](CHANGELOG.md#100---2026-09-17)
-for changes since the last published release, 0.4.0.
+for changes since the last tagged GitHub release, 0.4.0.
 
 The package is **`litmuseval`**, the Python import is **`litmusai`**, and the command is **`litmus`**. Local assertions and HTTP/chat adapters work with the base installation. For full JSON Schema validation, also run `pip install jsonschema`. Framework integrations need their framework's dependencies; see [adapters](docs/adapters.md).
 

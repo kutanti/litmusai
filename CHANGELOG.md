@@ -6,7 +6,7 @@ All notable changes to LitmusAI will be documented in this file.
 
 ## [1.0.0] - 2026-09-17
 
-This major release consolidates the changes since the last published release,
+This major release consolidates the changes since the last tagged GitHub release,
 0.4.0, including the fixes recorded under 0.5.0 below. The version bump itself
 does not introduce additional runtime changes.
 
