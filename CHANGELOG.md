@@ -4,6 +4,8 @@ All notable changes to LitmusAI will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-17
+
 ### Fixed
 
 - JSON assertions and task metrics accept the same complete JSON answer, optionally in one outer code fence. Assertions reject surrounding prose and multiple answers, accept JSON `null`, and reject non-finite numbers. Saved responses remain unchanged.
@@ -141,6 +143,8 @@ All notable changes to LitmusAI will be documented in this file.
 - GitHub Actions CI (lint + test + type check)
 - Copilot auto-review on PRs
 
+[Unreleased]: https://github.com/kutanti/litmusai/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/kutanti/litmusai/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/kutanti/litmusai/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kutanti/litmusai/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/kutanti/litmusai/compare/v0.2.0...v0.2.1
