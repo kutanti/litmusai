@@ -322,7 +322,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: kutanti/litmusai@v0.4.0
+      - uses: kutanti/litmusai@v0.5.0
         id: evaluation
         with:
           suite: tests.yaml
