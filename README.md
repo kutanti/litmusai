@@ -34,9 +34,9 @@ Requires Python 3.10 or newer. Install the `litmuseval` package and import it as
 pip install litmuseval
 ```
 
-For the 1.0.0 release, use `pip install --upgrade litmuseval==1.0.0`.
-See the [release notes and migration guidance](CHANGELOG.md#100---2026-09-17)
-for changes since the last tagged GitHub release, 0.4.0.
+For the 1.1.0 release, use `pip install --upgrade litmuseval==1.1.0`.
+See the [release notes and migration guidance](CHANGELOG.md#110---2026-09-19)
+for the new runtime features and upgrade guidance from 1.0.0.
 
 The package is **`litmuseval`**, the Python import is **`litmusai`**, and the command is **`litmus`**. Local assertions and HTTP/chat adapters work with the base installation. For full JSON Schema validation, also run `pip install jsonschema`. Framework integrations need their framework's dependencies; see [adapters](docs/adapters.md).
 
@@ -93,8 +93,6 @@ Pass the API key explicitly to this adapter. See [agent adapters](docs/adapters.
 
 A support agent passes its tests. During a live conversation, someone asks it to send customer records to an unapproved address. With the tool instrumented and a destination allowlist configured, LitmusAI detects the forbidden request and emits an event with the policy, conversation, and supporting evidence. Your system can alert an operator, escalate the conversation, or decide what the agent may do next.
 
-See the [narrated explainer and editable Remotion project](videos/runtime-monitoring/README.md) for a short illustrated story of this flow.
-
 ```text
 Customer <-> Your agent
                  |
@@ -128,10 +126,18 @@ Semantic policies require a compatible, customer-selected evaluator. The policy 
 
 ### Try the local demo
 
-Runtime monitoring is an **experimental, opt-in, single-instance pilot on `main`**. It is not included in the published PyPI 1.0.0 release. Install from a checkout:
+Runtime monitoring is an **experimental, opt-in, single-instance pilot**, included starting with 1.1.0. Install the collector and optional transports from PyPI:
 
 ```bash
-git clone https://github.com/kutanti/litmusai.git
+pip install --upgrade "litmuseval[runtime]==1.1.0"
+# Add transport dependencies when needed:
+pip install --upgrade "litmuseval[runtime,runtime-kafka,runtime-azure]==1.1.0"
+```
+
+The runnable demo also needs the example files from the repository. Check out the matching release:
+
+```bash
+git clone --branch v1.1.0 https://github.com/kutanti/litmusai.git
 cd litmusai
 pip install -e ".[runtime]"
 # Optional transport dependencies:
@@ -416,7 +422,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: kutanti/litmusai@v1.0.0
+      - uses: kutanti/litmusai@v1.1.0
         id: evaluation
         with:
           suite: tests.yaml

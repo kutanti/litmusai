@@ -1,4 +1,4 @@
-"""Regression tests for the one-time, post-merge 1.0.0 release."""
+"""Regression tests for the designated, post-merge 1.1.0 release."""
 
 import json
 import runpy
@@ -18,15 +18,15 @@ REPO = "kutanti/litmusai"
 
 @pytest.fixture
 def release():
-    return runpy.run_path(str(ROOT / "scripts/release_1_0_0.py"))["main"].__globals__
+    return runpy.run_path(str(ROOT / "scripts/release.py"))["main"].__globals__
 
 
 def test_release_notes_and_versions(release, tmp_path):
     pytest.importorskip("tomllib")
     notes = release["release_notes"](ROOT)
-    assert "### Migration from 0.x" in notes
+    assert "### Migration from 1.0.0" in notes
     assert "### Known limitations" in notes
-    assert "## [0.5.0]" not in notes
+    assert "## [1.0.0]" not in notes
     assert "## [Unreleased]" not in notes
     (tmp_path / "src/litmusai").mkdir(parents=True)
     for path in ["pyproject.toml", "src/litmusai/__init__.py", "CHANGELOG.md"]:
@@ -34,15 +34,15 @@ def test_release_notes_and_versions(release, tmp_path):
     (tmp_path / "src/litmusai/__init__.py").write_text('__version__ = "0.5.0"\n')
     with pytest.raises(ValueError, match="versions"):
         release["release_notes"](tmp_path)
-    (tmp_path / "src/litmusai/__init__.py").write_text('__version__ = "1.0.0"\n')
-    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.1.0"\n')
+    (tmp_path / "src/litmusai/__init__.py").write_text('__version__ = "1.1.0"\n')
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.2.0"\n')
     with pytest.raises(ValueError, match="versions"):
         release["release_notes"](tmp_path)
-    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.0.0"\n')
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.1.0"\n')
     for changelog in [
         "## [Unreleased]\n\nNotes\n",
-        "## [1.0.0] - 2026-09-17\n\n## [0.5.0]\nOld notes\n",
-        "## [1.0.0] - 2026-09-17\nNotes\n## [1.0.0] - 2026-09-17\nDuplicate\n",
+        "## [1.1.0] - 2026-09-19\n\n## [1.0.0]\nOld notes\n",
+        "## [1.1.0] - 2026-09-19\nNotes\n## [1.1.0] - 2026-09-19\nDuplicate\n",
     ]:
         (tmp_path / "CHANGELOG.md").write_text(changelog)
         with pytest.raises(ValueError, match="changelog"):
@@ -62,7 +62,7 @@ def test_create_and_retry(release, existing_tag, existing_release):
     def api(path, data=None):
         nonlocal ref
         calls.append((path, data))
-        if path == "git/ref/tags/v1.0.0":
+        if path == "git/ref/tags/v1.1.0":
             return ref
         if path == "git/refs":
             ref = {"object": {"type": "commit", "sha": data["sha"]}}
@@ -71,7 +71,7 @@ def test_create_and_retry(release, existing_tag, existing_release):
             if existing_tag == "nested" and path.endswith("annotation"):
                 return {"object": {"type": "tag", "sha": "inner"}}
             return {"object": {"type": "commit", "sha": SHA}}
-        if path == "releases/tags/v1.0.0":
+        if path == "releases/tags/v1.1.0":
             return {"draft": False, "prerelease": False} if existing_release else None
         assert path == "releases"
         return data
@@ -82,7 +82,7 @@ def test_create_and_retry(release, existing_tag, existing_release):
     assert len(writes) == (existing_tag == "absent") + (not existing_release)
     if not existing_release:
         assert writes[-1][1] == {
-            "tag_name": "v1.0.0", "target_commitish": SHA, "name": "v1.0.0",
+            "tag_name": "v1.1.0", "target_commitish": SHA, "name": "v1.1.0",
             "body": "Release notes", "draft": False, "prerelease": False,
         }
 
@@ -101,7 +101,7 @@ def test_mismatched_tag_never_writes(release, target):
     release["api"] = api
     with pytest.raises(ValueError, match="refusing to move"):
         release["ensure_release"](SHA, "notes")
-    assert calls == [("git/ref/tags/v1.0.0", None)]
+    assert calls == [("git/ref/tags/v1.1.0", None)]
 
 
 @pytest.mark.parametrize("state", [{"draft": True, "prerelease": False},
@@ -134,7 +134,7 @@ def test_only_release_pr_merge_is_eligible(release, monkeypatch, tmp_path, case)
     output = tmp_path / "output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: SHA)
-    release["api"] = lambda path: pr if path == "pulls/115" else pytest.fail(path)
+    release["api"] = lambda path: pr if path == "pulls/121" else pytest.fail(path)
     release["release_notes"] = lambda root: "notes"
     writes = []
     release["ensure_release"] = lambda *args: writes.append(args)
@@ -193,6 +193,7 @@ def test_workflow_security_and_manual_paths():
     assert checkout["ref"] == "${{ github.event.workflow_run.head_sha }}"
     assert checkout["persist-credentials"] is False
     assert release["permissions"] == {"contents": "write", "pull-requests": "read"}
+    assert release["steps"][-1]["run"] == "python scripts/release.py"
     publish = jobs["publish"]
     assert publish["needs"] == "release"
     assert "!cancelled()" in publish["if"]
