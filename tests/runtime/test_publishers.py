@@ -106,6 +106,73 @@ async def test_kafka_asynchronous_auth_failure_is_permanent(monkeypatch):
     assert not caught.value.retryable
 
 
+@pytest.mark.parametrize("mechanism", ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"])
+@pytest.mark.parametrize("failed_first_attempt", [False, True])
+async def test_kafka_cached_producer_uses_rotated_sasl_credentials(
+    monkeypatch, mechanism, failed_first_attempt
+):
+    kafka = pytest.importorskip("confluent_kafka")
+    monkeypatch.setenv("TEST_KAFKA_USER", "original-user")
+    monkeypatch.setenv("TEST_KAFKA_PASSWORD", "original-password")
+    broker_credentials = (
+        "original-user",
+        "expired-password" if failed_first_attempt else "original-password",
+    )
+    producers = []
+    bodies = []
+
+    class Producer:
+        def __init__(self, options):
+            self.credentials = options["sasl.username"], options["sasl.password"]
+            assert options["sasl.mechanism"] == mechanism
+            producers.append(self)
+
+        def set_sasl_credentials(self, username, password):
+            self.credentials = username, password
+
+        def produce(self, topic, value, key, on_delivery):
+            bodies.append(value)
+            self.callback = on_delivery
+
+        def poll(self, timeout):
+            error = None
+            if self.credentials != broker_credentials:
+                error = kafka.KafkaError(kafka.KafkaError.SASL_AUTHENTICATION_FAILED)
+            self.callback(error, None)
+
+    monkeypatch.setattr(kafka, "Producer", Producer)
+    config = KafkaDestination(
+        destination_id="k",
+        project_id="p",
+        bootstrap_servers="broker:9093",
+        topic="alerts",
+        security_protocol="SASL_SSL",
+        sasl_mechanism=mechanism,
+        username_env="TEST_KAFKA_USER",
+        password_env="TEST_KAFKA_PASSWORD",
+    )
+    publisher = KafkaPublisher(config)
+    body = b'{"id":"stable-event","data":{"project_id":"p","session_id":"s"}}'
+    if failed_first_attempt:
+        with pytest.raises(PublishError) as caught:
+            await publisher.publish(body, "delivery")
+        assert not caught.value.retryable
+    else:
+        await publisher.publish(body, "delivery")
+    broker_credentials = "rotated-user", "rotated-password"
+    monkeypatch.setenv("TEST_KAFKA_USER", broker_credentials[0])
+    monkeypatch.setenv("TEST_KAFKA_PASSWORD", broker_credentials[1])
+    await publisher.publish(body, "delivery")
+    assert bodies == [body, body]
+    assert len(producers) == 1  # Rotation preserves the producer's idempotence state.
+
+    # Missing references must fail instead of silently continuing with cached secrets.
+    monkeypatch.delenv("TEST_KAFKA_PASSWORD")
+    with pytest.raises(ValueError, match="required runtime secret is missing"):
+        await publisher.publish(body, "delivery")
+    assert bodies == [body, body]
+
+
 async def test_kafka_network_roundtrip_with_librdkafka_protocol_mock():
     """Exercise producer callbacks and consumer bytes using a loopback broker mock."""
     import time
