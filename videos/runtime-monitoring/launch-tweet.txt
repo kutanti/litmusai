@@ -1,9 +1,8 @@
-Your AI agent passed the tests.
-Then a user asked it to email the customer database.
+Your AI agent passed the tests. Who’s watching it in production?
 
-I built LitmusAI runtime monitoring to flag risky activity → webhook, Kafka or Event Grid.
+LitmusAI is open source: test agents, monitor live risks, and emit events to webhooks, Kafka or Event Grid.
 
 Your policies. Your response.
 
-Experimental on main:
+Experimental on main. PRs welcome.
 https://github.com/kutanti/litmusai
