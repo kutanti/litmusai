@@ -4,6 +4,43 @@ All notable changes to LitmusAI will be documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-19
+
+This release adds experimental monitoring for live agent conversations and tool
+activity alongside the existing offline evaluation workflows. LitmusAI emits
+events; the customer's system decides how to respond.
+
+### Added
+
+- Asynchronous runtime capture through `RuntimeClient`, explicit message/context hooks, and synchronous or asynchronous tool wrappers. Other languages can use authenticated HTTP ingestion.
+- A project-scoped collector with durable SQLite jobs and event delivery, capture/coverage inspection, redacted evidence, retries, and replay.
+- Configurable tool and destination allowlists, supported-secret exposure checks, and optional Lakera or compatible HTTP prompt-injection classification.
+- CloudEvents delivery through signed HTTPS webhooks, Kafka, Azure Event Grid, or multiple destinations.
+- Conversation tool-call limits with bounded time windows, duplicate handling, restart-safe counting, and threshold-crossing alerts.
+- Optional conditional deeper evaluation of uncertain injection classifications, separate workers, persistent call budgets, and explicit incomplete/error outcomes.
+- Versioned conversation policies with scope filters, history requirements, evidence checks, severity, and optional score thresholds. Supported rubric categories include sensitive-data requests, abuse, business-policy violations, suspicious patterns, out-of-scope responses, and responses unsupported by approved sources.
+- `litmus runtime serve`, `validate`, `status`, and `alerts`, with local examples and integration guides.
+
+### Migration from 1.0.0
+
+- Install with `pip install --upgrade litmuseval==1.1.0` and pin GitHub Actions to `kutanti/litmusai@v1.1.0`. Python 3.10 or newer remains supported.
+- Existing offline workflows need no runtime configuration. Install `litmuseval[runtime]==1.1.0` for the collector; add `runtime-kafka` and/or `runtime-azure` extras for those publishers.
+- Instrument actual agent activity and configure trusted policies and destinations. Semantic policies and deeper evaluation require a compatible customer-selected HTTP evaluator.
+- For pilots installed from earlier Git commits, back up the runtime database before upgrading. The collector upgrades database format 1 to 2; earlier collectors reject format 2. Restore the backup to roll back, following the [runtime operating guide](docs/runtime-threat-alerting.md).
+- Update strict event consumers before enabling optional features. Tool-usage, conditional-review, and conversation-policy alerts use data schemas 1.1, 1.2, and 1.3 respectively. Package, evaluation-result, dataset, and event schema versions are independent.
+
+### Known limitations
+
+- Runtime monitoring is an opt-in, single-instance pilot. It reports activity asynchronously and does not block tool execution. A requested action does not prove successful exfiltration.
+- Client queues are bounded and are not durably spooled; a process crash can lose unacknowledged events. Consumers should deduplicate delivered CloudEvents IDs.
+- Semantic rubrics are an evaluator framework, not a collection of prevalidated detectors. Grounding is relative to configured source-tool results, not universal truth verification.
+- Kafka delivery has been exercised against a real broker in CI. Live Azure downstream receipt, evaluator quality, and production latency still require deployment-specific validation tracked in [#116](https://github.com/kutanti/litmusai/issues/116).
+
+See the [runtime guide](docs/runtime-threat-alerting.md),
+[tool limits](docs/runtime-tool-usage.md),
+[conditional review](docs/runtime-conditional-review.md), and
+[conversation policies](docs/runtime-conversation-policies.md).
+
 ## [1.0.0] - 2026-09-17
 
 This major release consolidates the changes since the last tagged GitHub release,
@@ -180,7 +217,8 @@ and [feature validation report](docs/feature-validation.md) for contracts and li
 - GitHub Actions CI (lint + test + type check)
 - Copilot auto-review on PRs
 
-[Unreleased]: https://github.com/kutanti/litmusai/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/kutanti/litmusai/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/kutanti/litmusai/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/kutanti/litmusai/compare/v0.4.0...v1.0.0
 [0.5.0]: https://github.com/kutanti/litmusai/compare/v0.4.0...cf467cb
 [0.4.0]: https://github.com/kutanti/litmusai/compare/v0.3.0...v0.4.0
