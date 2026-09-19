@@ -15,6 +15,12 @@ Category = Literal[
     "sensitive_data",
     "prompt_injection",
     "excessive_tool_usage",
+    "sensitive_data_request",
+    "business_policy",
+    "suspicious_pattern",
+    "abuse",
+    "out_of_scope",
+    "ungrounded_response",
 ]
 Severity = Literal["low", "medium", "high", "critical"]
 Outcome = Literal["clear", "detected", "insufficient_context", "needs_review", "error", "skipped"]
@@ -161,6 +167,31 @@ class EvaluationTrace(Contract):
     output_tokens: int | None = Field(default=None, ge=0, strict=True)
 
 
+class PolicyEvaluationTrace(Contract):
+    """Telemetry for a configured conversation-policy evaluator."""
+
+    stage: Literal["policy"] = "policy"
+    decision: str
+    evaluator_version: str
+    provider_called: bool = False
+    elapsed_ms: float = Field(default=0, ge=0)
+    reported_cost_usd: float | None = Field(default=None, ge=0, strict=True)
+    input_tokens: int | None = Field(default=None, ge=0, strict=True)
+    output_tokens: int | None = Field(default=None, ge=0, strict=True)
+
+
+Evaluation = Annotated[EvaluationTrace | PolicyEvaluationTrace, Field(discriminator="stage")]
+
+
+class RiskScore(Contract):
+    """Operator-defined score semantics; the value is not inherently a probability."""
+
+    value: float = Field(ge=0, le=1, strict=True)
+    threshold: float = Field(ge=0, le=1, strict=True)
+    semantics: str
+    version: str
+
+
 class DetectionResult(Contract):
     """A detector outcome, kept separate from delivery and processing state."""
 
@@ -178,13 +209,14 @@ class DetectionResult(Contract):
     source_event_ids: list[str] = Field(default_factory=list)
     context_incomplete: bool = False
     usage: ToolUsageEvidence | None = None
-    evaluation: EvaluationTrace | None = None
+    evaluation: Evaluation | None = None
+    risk_score: RiskScore | None = None
 
 
 class ThreatAlert(Contract):
     """An immutable revision of a logical threat episode."""
 
-    schema_version: Literal["1.0", "1.1", "1.2"] = "1.0"
+    schema_version: Literal["1.0", "1.1", "1.2", "1.3"] = "1.0"
     alert_id: str
     revision: int = Field(ge=1)
     project_id: str
@@ -206,7 +238,8 @@ class ThreatAlert(Contract):
     detected_at: datetime = Field(default_factory=utcnow)
     context_incomplete: bool = False
     usage: ToolUsageEvidence | None = None
-    evaluation: EvaluationTrace | None = None
+    evaluation: Evaluation | None = None
+    risk_score: RiskScore | None = None
 
 
 class CloudEvent(Contract):

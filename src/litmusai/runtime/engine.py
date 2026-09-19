@@ -10,6 +10,7 @@ from collections.abc import Callable
 
 from litmusai.runtime.config import (
     DESTINATION_ADAPTER,
+    ConversationPolicy,
     Destination,
     ProjectConfig,
     RuntimeConfig,
@@ -26,6 +27,7 @@ from litmusai.runtime.detectors import (
     tool_policy,
 )
 from litmusai.runtime.models import CapturedEvent, DetectionResult, EvaluationTrace
+from litmusai.runtime.policies import PolicyEvaluator, evaluate_policy
 from litmusai.runtime.publishers import AlertPublisher, PublishError, publisher_for
 from litmusai.runtime.redaction import Redactor
 from litmusai.runtime.review import select_review
@@ -42,12 +44,14 @@ class Engine:
         *,
         classifiers: dict[str, InjectionClassifier] | None = None,
         reviewers: dict[str, InjectionClassifier] | None = None,
+        policy_evaluators: dict[tuple[str, str], PolicyEvaluator] | None = None,
         publisher_factory: Callable[[Destination], AlertPublisher] = publisher_for,
     ) -> None:
         self.store = store
         self.config = config
         self.classifiers = classifiers or {}
         self.reviewers = reviewers or {}
+        self.policy_evaluators = policy_evaluators or {}
         self.publisher_factory = publisher_factory
         self._publishers: dict[str, AlertPublisher] = {}
         self.tasks: list[asyncio.Task[None]] = []
@@ -66,6 +70,9 @@ class Engine:
             self.tasks.append(
                 asyncio.create_task(self._jobs(project.project_id, True, review=True))
             )
+            self.tasks.append(
+                asyncio.create_task(self._jobs(project.project_id, True, policies=True))
+            )
         destinations = set(self.store.destination_ids()) | {
             d.destination_id for d in self.config.destinations
         }
@@ -80,11 +87,18 @@ class Engine:
         await asyncio.gather(*self.tasks, return_exceptions=True)
         self.tasks.clear()
 
-    async def _jobs(self, project: str, semantic: bool, *, review: bool = False) -> None:
-        worker_id = f"jobs:{project}:{'review' if review else semantic}"
+    async def _jobs(
+        self,
+        project: str,
+        semantic: bool,
+        *,
+        review: bool = False,
+        policies: bool = False,
+    ) -> None:
+        worker_id = f"jobs:{project}:{'policies' if policies else 'review' if review else semantic}"
         while True:
             try:
-                if await self.process_one(project, semantic, review=review):
+                if await self.process_one(project, semantic, review=review, policies=policies):
                     self.worker_errors.pop(worker_id, None)
                     await asyncio.sleep(0)
                     continue
@@ -99,22 +113,31 @@ class Engine:
         semantic: bool = False,
         *,
         review: bool = False,
+        policies: bool = False,
     ) -> bool:
         """Process at most one durable job; useful for deterministic integration checks."""
-        job = self.store.claim_job(project, semantic, review=review)
+        job = self.store.claim_job(project, semantic, review=review, policies=policies)
         if not job:
             return False
         captured = self.store.captured(project, job["event"])
         settings = ProjectConfig.model_validate_json(job["config"])
-        policy: ThreatPolicy | ToolUsagePolicy = settings.policy
+        policy: ThreatPolicy | ToolUsagePolicy | ConversationPolicy = settings.policy
         if job["detector"].startswith("tool_usage:"):
             policy = next(
                 p
                 for p in settings.usage_policies
                 if p.policy_id == job["detector"].removeprefix("tool_usage:")
             )
+        if job["detector"].startswith("conversation_policy:"):
+            policy = next(
+                p
+                for p in settings.conversation_policies
+                if p.policy_id == job["detector"].removeprefix("conversation_policy:")
+            )
         try:
-            if isinstance(policy, ToolUsagePolicy):
+            if isinstance(policy, ConversationPolicy):
+                findings = [await self._evaluate_policy(captured, settings, policy)]
+            elif isinstance(policy, ToolUsagePolicy):
                 findings = [self.store.tool_usage(captured, policy)]
             elif job["detector"] == "tool_policy":
                 findings = tool_policy(captured, settings.policy)
@@ -172,6 +195,29 @@ class Engine:
             follow_up=follow_up,
         )
         return True
+
+    async def _evaluate_policy(
+        self,
+        captured: CapturedEvent,
+        project: ProjectConfig,
+        policy: ConversationPolicy,
+    ) -> DetectionResult:
+        context, incomplete = self.store.context(captured, policy.evaluator.context_events)
+        redactor = Redactor(project.policy)
+        context = [
+            item.model_copy(update={"event": redactor.capture(item.event).event})
+            for item in context
+        ]
+        return await evaluate_policy(
+            captured,
+            context,
+            incomplete,
+            policy,
+            lambda: self.store.use_policy_budget(
+                project.project_id, policy.policy_id, policy.evaluator.calls_per_minute
+            ),
+            self.policy_evaluators.get((project.project_id, policy.policy_id)),
+        )
 
     async def _classify(
         self,

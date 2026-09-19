@@ -13,6 +13,7 @@ from pydantic import Field, TypeAdapter, model_validator
 from litmusai.runtime.models import (
     Category,
     Contract,
+    EventType,
     Identifier,
     RuntimeEvent,
     Severity,
@@ -137,6 +138,61 @@ class ReviewConfig(Contract):
     clear_sample_rate: float = Field(default=0.01, ge=0, le=1)
 
 
+class ConversationPolicy(Contract):
+    """A trusted rubric evaluated against bounded live conversation evidence."""
+
+    policy_id: Identifier
+    version: Identifier
+    category: Literal[
+        "sensitive_data_request",
+        "business_policy",
+        "suspicious_pattern",
+        "abuse",
+        "out_of_scope",
+        "ungrounded_response",
+    ]
+    rubric: str = Field(min_length=1, max_length=4000)
+    evaluator: ClassifierConfig
+    event_types: list[EventType] = Field(min_length=1, max_length=6)
+    agents: list[Identifier] = Field(default_factory=list, max_length=100)
+    deployments: list[Identifier] = Field(default_factory=list, max_length=100)
+    min_context_events: int = Field(default=0, ge=0, le=50)
+    grounding_tools: list[Identifier] = Field(default_factory=list, max_length=100)
+    severity: Severity = "high"
+    cooldown_seconds: float = Field(default=30, ge=0, le=3600)
+    threshold: float | None = Field(default=None, ge=0, le=1, strict=True)
+    score_semantics: str | None = Field(default=None, min_length=1, max_length=500)
+    score_version: Identifier | None = None
+
+    @model_validator(mode="after")
+    def evidence_contract(self) -> ConversationPolicy:
+        """Reject unsupported evaluators or policies that cannot supply their evidence."""
+        if self.evaluator.provider != "http":
+            raise ValueError("conversation policies require the policy HTTP evaluator contract")
+        if "session.ended" in self.event_types:
+            raise ValueError("conversation policies evaluate activity, not session end markers")
+        if self.min_context_events > self.evaluator.context_events:
+            raise ValueError("required history exceeds evaluator context limit")
+        if self.category == "suspicious_pattern" and self.min_context_events < 1:
+            raise ValueError("pattern policies require prior conversation context")
+        if self.category == "ungrounded_response" and (
+            not self.grounding_tools or set(self.event_types) != {"response.completed"}
+        ):
+            raise ValueError("grounding policies require response events and authoritative tools")
+        scored = (self.threshold, self.score_semantics, self.score_version)
+        if any(v is not None for v in scored) and any(v is None for v in scored):
+            raise ValueError("threshold requires score semantics and version together")
+        return self
+
+    def applies(self, event: RuntimeEvent) -> bool:
+        """Cheap applicability filters run before any external evaluation is scheduled."""
+        return (
+            event.event_type in self.event_types
+            and (not self.agents or event.agent_id in self.agents)
+            and (not self.deployments or event.deployment_id in self.deployments)
+        )
+
+
 class ProjectConfig(Contract):
     """Project identity comes from authentication, never a model assertion."""
 
@@ -144,6 +200,7 @@ class ProjectConfig(Contract):
     api_key_env: Identifier
     policy: ThreatPolicy = Field(default_factory=ThreatPolicy)
     usage_policies: list[ToolUsagePolicy] = Field(default_factory=list, max_length=20)
+    conversation_policies: list[ConversationPolicy] = Field(default_factory=list, max_length=20)
     classifier: ClassifierConfig | None = None
     review: ReviewConfig | None = None
     max_pending_events: int = Field(default=10000, ge=1, le=1000000)
@@ -153,7 +210,11 @@ class ProjectConfig(Contract):
     @model_validator(mode="after")
     def policy_ids_unique(self) -> ProjectConfig:
         """Avoid ambiguous policy identities within a project."""
-        ids = [self.policy.policy_id, *(p.policy_id for p in self.usage_policies)]
+        ids = [
+            self.policy.policy_id,
+            *(p.policy_id for p in self.usage_policies),
+            *(p.policy_id for p in self.conversation_policies),
+        ]
         if len(ids) != len(set(ids)):
             raise ValueError("policy IDs must be unique within a project")
         if self.review and self.classifier is None:

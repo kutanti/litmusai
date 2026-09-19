@@ -19,6 +19,7 @@ from litmusai.runtime.config import Destination, ProjectConfig, RuntimeConfig, s
 from litmusai.runtime.detectors import InjectionClassifier
 from litmusai.runtime.engine import Engine
 from litmusai.runtime.models import RuntimeEvent
+from litmusai.runtime.policies import PolicyEvaluator
 from litmusai.runtime.publishers import AlertPublisher, publisher_for
 from litmusai.runtime.redaction import Redactor
 from litmusai.runtime.store import Store
@@ -30,6 +31,7 @@ def create_app(
     store: Store | None = None,
     classifiers: dict[str, InjectionClassifier] | None = None,
     reviewers: dict[str, InjectionClassifier] | None = None,
+    policy_evaluators: dict[tuple[str, str], PolicyEvaluator] | None = None,
     publisher_factory: Callable[[Destination], AlertPublisher] = publisher_for,
     run_workers: bool = True,
 ) -> FastAPI:
@@ -54,6 +56,7 @@ def create_app(
         config,
         classifiers=classifiers,
         reviewers=reviewers,
+        policy_evaluators=policy_evaluators,
         publisher_factory=publisher_factory,
     )
     redactors = {p.project_id: Redactor(p.policy) for p in config.projects}
