@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from collections import Counter
 from collections.abc import Sequence
 from copy import deepcopy
 from typing import Any
 
+from litmusai._json import parse_json_output
 from litmusai.metrics.schema import MetricConfig, Observation
 
 
@@ -55,10 +55,6 @@ def validate_observations(observations: Sequence[Observation], config: MetricCon
         seen.add(identity)
 
 
-def _reject_constant(value: str) -> Any:
-    raise ValueError(f"non-finite JSON number: {value}")
-
-
 def _read_pointer(value: Any, pointer: str) -> Any:
     if not pointer:
         return value
@@ -90,8 +86,7 @@ def parse_observation(
         return observation
     if config.task_type == "extraction" or config.prediction_field is not None:
         try:
-            value = json.loads(output, parse_constant=_reject_constant)
-            json.dumps(value, allow_nan=False)
+            value = parse_json_output(output)
             observation.predicted = _read_pointer(value, config.prediction_field or "")
         except (ValueError, RecursionError) as exc:
             observation.status = "invalid_prediction"

@@ -1,8 +1,7 @@
 """Cost & latency benchmarking for AI agent evaluation.
 
 Track token usage, API costs, and latency per task. Compare agents
-side-by-side with cost-per-successful-task metrics — the number
-nobody else gives you.
+using costs per task and per successful task.
 
 Features:
     - Auto cost tracking (OpenAI, Anthropic, Google, 20+ models)
@@ -22,6 +21,8 @@ import statistics
 import time
 from dataclasses import dataclass, field
 from typing import Any
+
+from litmusai._cost import format_cost, read_cost, round_cost, sum_costs
 
 # ─── Model Pricing Database ───────────────────────────────────────
 
@@ -189,7 +190,7 @@ class TaskMetrics:
     end_time: float = 0.0
 
     # Cost (computed)
-    cost: float = 0.0
+    cost: float | None = None
 
     # Score
     score: float = 0.0
@@ -198,11 +199,11 @@ class TaskMetrics:
     def total_tokens(self) -> int:
         return self.input_tokens + self.output_tokens
 
-    def compute_cost(self, pricing: ModelPricing | None = None) -> float:
+    def compute_cost(self, pricing: ModelPricing | None = None) -> float | None:
         """Compute cost from token usage and pricing."""
         p = pricing or get_pricing(self.model)
         if p:
-            self.cost = (
+            self.cost = read_cost(
                 self.input_tokens * p.input_cost_per_token
                 + self.output_tokens * p.output_cost_per_token
             )
@@ -285,8 +286,8 @@ class CostTracker:
         return self.passed_tasks / self.total_tasks
 
     @property
-    def total_cost(self) -> float:
-        return sum(t.cost for t in self.tasks)
+    def total_cost(self) -> float | None:
+        return sum_costs(t.cost for t in self.tasks)
 
     @property
     def total_input_tokens(self) -> int:
@@ -301,17 +302,21 @@ class CostTracker:
         return self.total_input_tokens + self.total_output_tokens
 
     @property
-    def avg_cost_per_task(self) -> float:
+    def avg_cost_per_task(self) -> float | None:
         if self.total_tasks == 0:
             return 0.0
-        return self.total_cost / self.total_tasks
+        cost = self.total_cost
+        return cost / self.total_tasks if cost is not None else None
 
     @property
-    def cost_per_pass(self) -> float:
-        """Cost per successful task — the metric nobody else tracks."""
+    def cost_per_pass(self) -> float | None:
+        """Cost per successful task, if the estimate is complete."""
+        cost = self.total_cost
+        if cost is None:
+            return None
         if self.passed_tasks == 0:
             return float("inf")
-        return self.total_cost / self.passed_tasks
+        return cost / self.passed_tasks
 
     @property
     def avg_score(self) -> float:
@@ -351,15 +356,18 @@ class CostTracker:
     # ─── Efficiency ────────────────────────────────────────────
 
     @property
-    def efficiency_score(self) -> float:
+    def efficiency_score(self) -> float | None:
         """Quality-to-cost ratio (higher is better).
 
         efficiency = pass_rate / cost_per_pass
         Normalized so cheap + accurate = high score.
         """
-        if self.cost_per_pass == float("inf") or self.cost_per_pass == 0:
+        cost = self.cost_per_pass
+        if cost is None:
+            return None
+        if cost == float("inf") or cost == 0:
             return 0.0
-        return self.pass_rate / self.cost_per_pass
+        return self.pass_rate / cost
 
     # ─── Summary ───────────────────────────────────────────────
 
@@ -372,10 +380,10 @@ class CostTracker:
             "passed": self.passed_tasks,
             "failed": self.failed_tasks,
             "pass_rate": round(self.pass_rate, 4),
-            "total_cost": round(self.total_cost, 6),
-            "avg_cost_per_task": round(self.avg_cost_per_task, 6),
+            "total_cost": round_cost(self.total_cost),
+            "avg_cost_per_task": round_cost(self.avg_cost_per_task),
             "cost_per_pass": (
-                round(self.cost_per_pass, 6)
+                round_cost(self.cost_per_pass)
                 if self.cost_per_pass != float("inf")
                 else "N/A"
             ),
@@ -386,7 +394,8 @@ class CostTracker:
             "p50_latency_ms": round(self.p50_latency_ms, 1),
             "p95_latency_ms": round(self.p95_latency_ms, 1),
             "p99_latency_ms": round(self.p99_latency_ms, 1),
-            "efficiency_score": round(self.efficiency_score, 4),
+            "efficiency_score": (round(self.efficiency_score, 4)
+                                 if self.efficiency_score is not None else None),
             "avg_score": round(self.avg_score, 4),
         }
 
@@ -400,7 +409,7 @@ class BudgetAlert:
 
     level: str  # "warning" or "error"
     message: str
-    actual: float
+    actual: float | None
     limit: float
 
 
@@ -440,7 +449,14 @@ class CostGuard:
         """Check a single task against budget limits."""
         alerts: list[BudgetAlert] = []
 
-        if self.max_cost_per_task is not None and task.cost > self.max_cost_per_task:
+        if self.max_cost_per_task is not None and task.cost is None:
+            alerts.append(BudgetAlert(
+                level="error",
+                message=f"Task '{task.task_id}' cost is unknown; cannot check budget.",
+                actual=None, limit=self.max_cost_per_task,
+            ))
+        elif (self.max_cost_per_task is not None and task.cost is not None
+              and task.cost > self.max_cost_per_task):
             alerts.append(BudgetAlert(
                 level="error",
                 message=(
@@ -487,8 +503,14 @@ class CostGuard:
             alerts.extend(self.check_task(task))
 
         # Total cost check
-        if (
+        if self.max_total_cost is not None and tracker.total_cost is None:
+            alerts.append(BudgetAlert(
+                level="error", message="Total cost is unknown; cannot check budget.",
+                actual=None, limit=self.max_total_cost,
+            ))
+        elif (
             self.max_total_cost is not None
+            and tracker.total_cost is not None
             and tracker.total_cost > self.max_total_cost
         ):
             alerts.append(BudgetAlert(
@@ -534,15 +556,17 @@ class ComparisonResult:
             s = t.summary()
             name = s["model"] or s["agent_name"] or "unknown"
             cpp = s["cost_per_pass"]
-            cpp_str = f"${cpp:.4f}" if isinstance(cpp, float) else cpp
+            cpp_str = cpp if cpp == "N/A" else format_cost(cpp)
+            efficiency = s["efficiency_score"]
+            efficiency_str = f"{efficiency:.2f}" if efficiency is not None else "Unknown"
             rows.append(
                 f"| {name} "
                 f"| {s['pass_rate']:.1%} "
-                f"| ${s['avg_cost_per_task']:.4f} "
+                f"| {format_cost(s['avg_cost_per_task'])} "
                 f"| {cpp_str} "
                 f"| {s['p50_latency_ms']:.0f}ms "
                 f"| {s['p95_latency_ms']:.0f}ms "
-                f"| {s['efficiency_score']:.2f} "
+                f"| {efficiency_str} "
                 f"| {s['avg_score']:.2f} |"
             )
 
@@ -577,7 +601,8 @@ class ComparisonResult:
         writer = csv.DictWriter(output, fieldnames=fields)
         writer.writeheader()
         for t in self.trackers:
-            writer.writerow(t.summary())
+            writer.writerow({k: v if v is not None else "unknown"
+                             for k, v in t.summary().items()})
 
         return output.getvalue()
 
@@ -595,8 +620,9 @@ def compare_models(*trackers: CostTracker) -> ComparisonResult:
     result = ComparisonResult(trackers=list(trackers))
 
     # Find best by efficiency (quality / cost)
-    best = max(trackers, key=lambda t: t.efficiency_score)
-    cheapest = min(trackers, key=lambda t: t.avg_cost_per_task)
+    priced = [t for t in trackers if t.total_cost is not None]
+    best = max(priced, key=lambda t: t.efficiency_score or 0) if priced else None
+    cheapest = min(priced, key=lambda t: t.avg_cost_per_task or 0) if priced else None
     most_accurate = max(trackers, key=lambda t: t.pass_rate)
     fastest = min(
         trackers,
@@ -604,11 +630,14 @@ def compare_models(*trackers: CostTracker) -> ComparisonResult:
     )
 
     parts = []
-    best_name = best.model or best.agent_name
-    parts.append(f"Best efficiency: **{best_name}** "
-                 f"(efficiency={best.efficiency_score:.2f})")
+    if best is not None:
+        best_name = best.model or best.agent_name
+        parts.append(f"Best efficiency: **{best_name}** "
+                     f"(efficiency={best.efficiency_score:.2f})")
+    if len(priced) != len(trackers):
+        parts.append("Cost comparisons exclude models with unknown costs")
 
-    if cheapest is not best:
+    if cheapest is not None and cheapest is not best:
         cheapest_name = cheapest.model or cheapest.agent_name
         parts.append(f"Cheapest: **{cheapest_name}** "
                      f"(${cheapest.avg_cost_per_task:.4f}/task)")

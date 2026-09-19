@@ -17,6 +17,7 @@ from typing import Any
 from rich.console import Console
 from rich.table import Table
 
+from litmusai._cost import format_cost
 from litmusai.core.agent import Agent
 from litmusai.core.runner import EvalResults, MultiRunResults, evaluate
 from litmusai.core.scorer import Scorer
@@ -128,9 +129,10 @@ def compare_with_baseline(
     base_rate = base_summary.get("pass_rate", 0)
     rate_delta = curr_rate - base_rate
 
-    curr_cost = curr_summary.get("total_cost", 0)
-    base_cost = base_summary.get("total_cost", 0)
-    cost_delta = curr_cost - base_cost
+    curr_cost = curr_summary.get("total_cost")
+    base_cost = base_summary.get("total_cost")
+    cost_delta = (curr_cost - base_cost
+                  if curr_cost is not None and base_cost is not None else None)
 
     curr_latency = curr_summary.get("avg_latency_ms", 0)
     base_latency = base_summary.get("avg_latency_ms", 0)
@@ -143,7 +145,8 @@ def compare_with_baseline(
             f"Pass rate dropped {abs(rate_delta):.1%} "
             f"({base_rate:.1%} → {curr_rate:.1%})"
         )
-    if base_cost > 0 and cost_delta > base_cost * 0.5:  # >50% cost increase
+    if (base_cost is not None and base_cost > 0 and cost_delta is not None
+            and cost_delta > base_cost * 0.5):  # >50% cost increase
         regressions.append(
             f"Cost increased {cost_delta / base_cost:.0%} "
             f"(${base_cost:.4f} → ${curr_cost:.4f})"
@@ -156,7 +159,8 @@ def compare_with_baseline(
 
     return {
         "pass_rate": {"current": curr_rate, "baseline": base_rate, "delta": rate_delta},
-        "cost": {"current": curr_cost, "baseline": base_cost, "delta": cost_delta},
+        "cost": {"current": curr_cost, "baseline": base_cost, "delta": cost_delta,
+                 "comparable": cost_delta is not None},
         "latency": {
             "current": curr_latency,
             "baseline": base_latency,
@@ -178,8 +182,10 @@ def results_to_dict(results: EvalResults | MultiRunResults) -> dict[str, Any]:
 # ─── Report Formatting ────────────────────────────────────────────
 
 
-def _delta_str(val: float, fmt: str = ".1%", invert: bool = False) -> str:
+def _delta_str(val: float | None, fmt: str = ".1%", invert: bool = False) -> str:
     """Format a delta value with arrow indicator."""
+    if val is None:
+        return "Unavailable"
     if val == 0:
         return "→ (no change)"
     # For cost/latency, positive = bad; for pass rate, positive = good
@@ -229,7 +235,7 @@ def format_report(
     passed = summary.get("passed", 0)
     failed = summary.get("failed", 0)
     pass_rate = summary.get("pass_rate", 0)
-    cost = summary.get("total_cost", 0)
+    cost = summary.get("total_cost")
     latency = summary.get("avg_latency_ms", 0)
 
     verdict = "PASSED" if pass_rate >= threshold else "FAILED"
@@ -239,7 +245,7 @@ def format_report(
     lines.append("|--------|-------|")
     lines.append(f"| Pass Rate | {pass_rate:.0%} ({passed}/{total}) |")
     lines.append(f"| Failed | {failed} |")
-    lines.append(f"| Total Cost | ${cost:.4f} |")
+    lines.append(f"| Total Cost | {format_cost(cost)} |")
     lines.append(f"| Avg Latency | {latency:.0f}ms |")
 
     # Baseline comparison
@@ -259,7 +265,7 @@ def format_report(
 
         c = comparison["cost"]
         lines.append(
-            f"| Cost | ${c['current']:.4f} | ${c['baseline']:.4f} "
+            f"| Cost | {format_cost(c['current'])} | {format_cost(c['baseline'])} "
             f"| {_delta_str(c['delta'], '.4f', invert=True)} |"
         )
 
@@ -292,7 +298,7 @@ def format_report(
             lines.append(
                 f"| {i} | {name} | {case_id} | {repetition} | {status} "
                 f"| {r.get('latency_ms', 0):.0f}ms "
-                f"| ${r.get('cost', 0):.4f} |"
+                f"| {format_cost(r.get('cost'))} |"
             )
         lines.append("")
         lines.append("</details>")
@@ -355,7 +361,7 @@ def format_table(
             ])
         row.extend([
             f"{r.get('latency_ms', 0):.0f}ms",
-            f"${r.get('cost', 0):.4f}",
+            f"{format_cost(r.get('cost'))}",
         ])
         table.add_row(*row)
 
@@ -365,7 +371,7 @@ def format_table(
     summary_line = (
         f"\n{summary.get('passed', 0)}/{summary.get('total', 0)} passed "
         f"| {summary.get('failed', 0)} failed "
-        f"| ${summary.get('total_cost', 0):.4f} "
+        f"| {format_cost(summary.get('total_cost'))} "
         f"| {summary.get('avg_latency_ms', 0):.0f}ms avg"
         f"| Pass rate: {pass_rate:.0%}"
     )
@@ -378,6 +384,7 @@ def format_table(
     # Show dimension summary if available
     if show_dimensions and "dimensions" in data:
         dims = data["dimensions"]
+        cost_score = f"{dims['cost']:.2f}" if dims.get("cost") is not None else "Unknown"
         dim_line = (
             f"Dimensions: "
             f"correctness={dims.get('correctness', 0):.2f} "
@@ -386,7 +393,7 @@ def format_table(
             f"relevance={dims.get('relevance', 0):.2f} "
             f"safety={dims.get('safety', 0):.2f} "
             f"latency={dims.get('latency', 0):.2f} "
-            f"cost={dims.get('cost', 0):.2f} "
+            f"cost={cost_score} "
             f"→ overall={dims.get('overall', 0):.2f}"
         )
         console.print(dim_line)
@@ -510,18 +517,31 @@ async def run_evaluation(
         )
         success = False
 
-    # Check budget
-    if budget is not None and results.total_cost > budget:
-        diagnostics.print(
-            f"[red]Total cost ${results.total_cost:.4f} "
-            f"exceeds budget ${budget:.4f}[/red]"
+    # A budget cannot pass without a complete estimate.
+    budget_check = None
+    if budget is not None:
+        cost = results.total_cost
+        budget_passed = cost is not None and cost <= budget
+        reason = (
+            "Cost is unknown. Supply an explicit USD cost or register model pricing "
+            "and provide complete token usage." if cost is None else
+            f"Total cost ${cost:.4f} {'is within' if budget_passed else 'exceeds'} "
+            f"budget ${budget:.4f}"
         )
-        success = False
+        budget_check = {"limit": budget, "total_cost": cost,
+                        "passed": budget_passed, "reason": reason}
+        if not budget_passed:
+            diagnostics.print(f"[red]{reason}[/red]")
+            success = False
 
     # Check for regressions
     has_regression = False
     if baseline:
         comparison = compare_with_baseline(data, baseline)
+        if not comparison["cost"]["comparable"]:
+            diagnostics.print(
+                "[yellow]Cost comparison unavailable: current or baseline cost is unknown.[/yellow]"
+            )
         has_regression = comparison["has_regression"]
         if has_regression:
             diagnostics.print("[red]Regressions detected:[/red]")
@@ -531,6 +551,8 @@ async def run_evaluation(
 
     # Build full output payload (consistent for stdout and file)
     output_payload: dict[str, Any] = {"results": data}
+    if budget_check is not None:
+        output_payload["budget_check"] = budget_check
     if baseline:
         output_payload["comparison"] = compare_with_baseline(data, baseline)
     output_payload["success"] = success

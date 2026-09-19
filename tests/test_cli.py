@@ -2,6 +2,7 @@
 
 import json
 import shlex
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -376,4 +377,8 @@ class TestBadges:
 class TestVersion:
     def test_version(self, runner):
         result = runner.invoke(cli, ["--version"])
+        assert result.exit_code == 0
         assert __version__ in result.output
+
+    def test_version_matches_package_metadata(self):
+        assert __version__ == version("litmuseval")

@@ -57,7 +57,7 @@ All adapters normalize outputs to `AgentResponse`:
 class AgentResponse:
     output: str                  # The agent's final text output
     metadata: dict[str, Any]     # Arbitrary metadata from the run
-    cost: float                  # Estimated cost in USD
+    cost: float | None           # Estimated USD; None means unavailable, 0 means free
     latency_ms: float            # Execution time in milliseconds
     tokens_used: int             # Total tokens consumed
     input_tokens: int            # Input/prompt tokens

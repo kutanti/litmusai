@@ -18,7 +18,7 @@ class TestScoreVector:
     def test_default_values(self):
         v = ScoreVector()
         for dim in DIMENSIONS:
-            assert getattr(v, dim) == 0.0
+            assert getattr(v, dim) == (None if dim == "cost" else 0.0)
         assert v.overall == 0.0
 
     def test_compute_overall_defaults(self):
@@ -198,7 +198,7 @@ class TestBuildScoreVector:
         resp = AgentResponse(output="hello", model="test", cost=0.0)
 
         v = build_score_vector(score_result=sr, response=resp)
-        assert v.cost == 1.0  # No cost data → 1.0
+        assert v.cost == 1.0  # An explicitly free run is within budget.
 
     def test_empty_output(self):
         from litmusai.core.agent import AgentResponse

@@ -55,7 +55,7 @@ outputs:
     description: 'Evaluation pass rate (0.0-1.0)'
     value: ${{ steps.eval.outputs.pass-rate }}
   total-cost:
-    description: 'Total evaluation cost ($)'
+    description: 'Total estimated evaluation cost in USD, or unknown'
     value: ${{ steps.eval.outputs.total-cost }}
   passed:
     description: 'Number of passed tests'

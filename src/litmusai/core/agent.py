@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from litmusai._cost import estimate_cost, read_cost
+
 if TYPE_CHECKING:
     from litmusai.conversation import Conversation
 
@@ -90,7 +92,7 @@ class AgentResponse:
     Attributes:
         output: The agent's final text output.
         metadata: Arbitrary metadata from the agent run.
-        cost: Estimated cost in USD for this run.
+        cost: Estimated cost in USD, or None when unavailable. Explicit 0 means free.
         latency_ms: Total execution time in milliseconds.
         tokens_used: Total tokens consumed (input + output).
         input_tokens: Input/prompt tokens consumed.
@@ -104,7 +106,7 @@ class AgentResponse:
 
     output: str
     metadata: dict[str, Any] = field(default_factory=dict)
-    cost: float = 0.0
+    cost: float | None = None
     latency_ms: float = 0.0
     tokens_used: int = 0
     input_tokens: int = 0
@@ -114,6 +116,9 @@ class AgentResponse:
     steps: list[AgentStep] = field(default_factory=list)
     success: bool = True
     error: str | None = None
+
+    def __post_init__(self) -> None:
+        self.cost = read_cost(self.cost)
 
     @property
     def num_steps(self) -> int:
@@ -261,7 +266,7 @@ class Agent:
 
         return AgentResponse(
             output=str(result.get("output", str(result))),
-            cost=float(result.get("cost", 0.0)),
+            cost=read_cost(result.get("cost")),
             tokens_used=int(result.get("tokens_used", 0)),
             input_tokens=int(result.get("input_tokens", 0)),
             output_tokens=int(result.get("output_tokens", 0)),
@@ -345,7 +350,7 @@ class Agent:
 
                 return {
                     "output": str(data.get(response_field, data.get("response", str(data)))),
-                    "cost": float(data.get("cost", 0.0)),
+                    "cost": read_cost(data.get("cost")),
                     "tokens_used": int(
                         data.get("tokens_used", data.get("usage", {}).get("total_tokens", 0))
                     ),
@@ -750,19 +755,7 @@ class Agent:
             # "gpt-4o-2026-03-15"), then fall back to the requested
             # model name. The pricing DB supports fuzzy matching.
             resp_model = data.get("model", model)
-            cost = 0.0
-            try:
-                from litmusai.benchmarks import get_pricing
-                pricing = (
-                    get_pricing(resp_model) or get_pricing(model)
-                )
-                if pricing and (inp_tok or out_tok):
-                    cost = (
-                        inp_tok * pricing.input_cost_per_token
-                        + out_tok * pricing.output_cost_per_token
-                    )
-            except ImportError:
-                pass
+            cost = estimate_cost(usage, resp_model, model)
 
             # ── Extract tool calls if present ──────────────
             tool_calls: list[ToolCall] = []
@@ -889,8 +882,6 @@ class Agent:
             "api-key": resolved_key,
         }
 
-        import httpx
-
         async def azure_chat_fn(task: str, **kwargs: Any) -> AgentResponse:
             _reject_structured_inputs(kwargs, "from_azure")
             messages: list[dict[str, str]] = []
@@ -923,21 +914,10 @@ class Agent:
                 data = r.json()
 
             choice = data["choices"][0]["message"]["content"]
-            usage = data.get("usage", {})
-            input_tok = usage.get("prompt_tokens", 0)
-            output_tok = usage.get("completion_tokens", 0)
-
-            cost = 0.0
-            try:
-                from litmusai.benchmarks import get_pricing
-                pricing = get_pricing(deployment)
-                if pricing:
-                    cost = (
-                        input_tok * pricing.input_cost_per_token
-                        + output_tok * pricing.output_cost_per_token
-                    )
-            except ImportError:
-                pass
+            usage = data.get("usage") or {}
+            input_tok = _safe_int(usage.get("prompt_tokens"))
+            output_tok = _safe_int(usage.get("completion_tokens"))
+            cost = estimate_cost(usage, deployment)
 
             return AgentResponse(
                 output=choice,

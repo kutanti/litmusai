@@ -76,7 +76,7 @@ class TestRealAgent:
 
         results = await evaluate(agent, suite, verbose=False)
         assert results.pass_rate >= 0.5  # LLMs should get this
-        assert results.total_cost >= 0  # Cost tracking works
+        assert results.total_cost is None or results.total_cost >= 0
         assert results.results[0].latency_ms > 0
 
     @pytest.mark.asyncio

@@ -25,3 +25,32 @@ python scripts/check_commit_messages.py --base origin/main --head HEAD --title "
 ```
 
 The check applies to new commits. Existing commit messages and dates are preserved.
+
+## Releases
+
+Keep the version in `pyproject.toml` and `src/litmusai/__init__.py` identical.
+Update the README's pinned installation and GitHub Action tag, and add dated
+release notes, migration guidance, and comparison links to `CHANGELOG.md`.
+Package versions and result/dataset schema versions are independent.
+
+For 1.0.0, merge release PR #115. After `CI` succeeds for its push to `main`,
+`.github/workflows/publish.yml` checks out that exact tested merge commit,
+checks the package/runtime versions, and creates `v1.0.0` and its GitHub release
+using the dated 1.0.0 section of `CHANGELOG.md`. It then builds, checks, and
+publishes to PyPI through trusted publishing in the same workflow; releases
+created with `GITHUB_TOKEN` do not trigger another workflow.
+
+This automation is limited to PR #115 and version 1.0.0. It does not run for
+PR CI, failed CI, or later commits. Existing tags are never moved: a tag pointing
+elsewhere fails the release. To recover from a partial failure, rerun the
+workflow for the tested merge; matching tags and published releases are reused,
+and already uploaded PyPI files are skipped. Repository token permissions and
+the existing PyPI trusted publisher for `publish.yml` must be configured.
+
+Future releases remain manual: merge and wait for CI, create a new version tag
+at the tested commit, then publish a GitHub release with the changelog notes.
+The `release: published` trigger and manual `workflow_dispatch` remain available;
+when dispatching manually, select the release tag, not a moving branch.
+Do not move existing release tags or tag the pre-merge PR branch.
+Verify that the release tag, `litmuseval` package version, and `litmus --version`
+all identify 1.0.0 before announcing the release.

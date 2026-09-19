@@ -64,7 +64,8 @@ def to_junit_xml(
         ("agent", agent_name),
         ("suite", suite_name),
         ("pass_rate", str(summary.get("pass_rate", 0))),
-        ("total_cost", str(summary.get("total_cost", 0))),
+        ("total_cost", str(summary["total_cost"])
+         if summary.get("total_cost") is not None else "unknown"),
         ("avg_latency_ms", str(summary.get("avg_latency_ms", 0))),
     ]:
         prop = ET.SubElement(props, "property")
@@ -91,6 +92,8 @@ def to_junit_xml(
 
         identities = {key: r[key] for key in ("evaluation_id", "case_id", "repetition")
                       if r.get(key) is not None}
+        if "cost" in r:
+            identities["cost"] = r["cost"] if r["cost"] is not None else "unknown"
         for key in ("inputs", "metadata", "source", "ground_truth", "response_metadata"):
             if r.get(key) is not None:
                 identities[key] = json.dumps(r[key], ensure_ascii=False)
@@ -163,6 +166,8 @@ def to_csv(
         writer.writeheader()
         for r in results:
             row = {k: r.get(k, "") for k in fieldnames}
+            if r.get("cost") is None:
+                row["cost"] = "unknown"
             dataset = data.get("dataset") or {}
             for key in ("id", "revision", "fingerprint"):
                 row[f"dataset_{key}"] = dataset.get(key) or ""
