@@ -1,0 +1,40 @@
+database: .litmus/runtime.sqlite3
+projects:
+  - project_id: support
+    api_key_env: LITMUS_RUNTIME_API_KEY
+    policy:
+      policy_id: support-tools
+      version: "1"
+      allowed_tools: [send_email]
+      allowed_destinations: [support@example.com]
+      destination_tools: [send_email]
+    # Optional: requires your own evaluated provider project and credential.
+    # classifier:
+    #   provider: lakera
+    #   endpoint: https://api.lakera.ai/v2/guard
+    #   provider_project_id: your-lakera-project
+    #   api_key_env: LAKERA_GUARD_API_KEY
+    #   version: your-policy-and-model-version
+    #   calls_per_minute: 60
+destinations:
+  - kind: webhook
+    destination_id: response-handler
+    project_id: support
+    url: http://127.0.0.1:8766/events
+    allow_local_http: true
+    signing_secret_env: LITMUS_WEBHOOK_SECRET
+  # Add either/both alongside the webhook for fan-out.
+  # - kind: kafka
+  #   destination_id: security-kafka
+  #   project_id: support
+  #   bootstrap_servers: kafka.example.com:9093
+  #   topic: agent-threats
+  #   security_protocol: SASL_SSL
+  #   username_env: KAFKA_USERNAME
+  #   password_env: KAFKA_PASSWORD
+  # - kind: event_grid
+  #   destination_id: security-grid
+  #   project_id: support
+  #   endpoint: https://your-topic.region-1.eventgrid.azure.net/api/events
+  #   access_key_env: EVENT_GRID_KEY
+  #   # Omit access_key_env to use DefaultAzureCredential / managed identity.

@@ -1,0 +1,42 @@
+name: Runtime Kafka integration
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/litmusai/runtime/**'
+      - 'tests/runtime/**'
+      - 'pyproject.toml'
+      - '.github/workflows/runtime-integration.yml'
+
+jobs:
+  kafka:
+    runs-on: ubuntu-latest
+    services:
+      kafka:
+        image: apache/kafka:3.9.1
+        ports:
+          - 9092:9092
+        env:
+          KAFKA_NODE_ID: 1
+          KAFKA_PROCESS_ROLES: broker,controller
+          KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+        options: >-
+          --health-cmd "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"
+          --health-interval 10s --health-timeout 10s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -e ".[dev,runtime,runtime-kafka]"
+      - run: pytest tests/runtime/test_external_transports.py -v --tb=short
+        env:
+          LITMUS_TEST_KAFKA_BOOTSTRAP: localhost:9092

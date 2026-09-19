@@ -31,7 +31,7 @@ classifiers = [
 dependencies = [
     "click>=8.0",
     "rich>=13.0",
-    "pydantic>=2.0",
+    "pydantic>=2.5",
     "httpx>=0.25",
     "pyyaml>=6.0",
     "jinja2>=3.0",
@@ -51,6 +51,9 @@ openai = ["openai>=1.0"]
 langchain = ["langchain>=0.1"]
 anthropic = ["anthropic>=0.20"]
 litellm = ["litellm>=1.0"]
+runtime = ["fastapi>=0.115", "uvicorn>=0.30"]
+runtime-kafka = ["confluent-kafka>=2.6"]
+runtime-azure = ["azure-eventgrid>=4.20", "azure-identity>=1.19", "aiohttp>=3.10"]
 all = [
     "openai>=1.0",
     "langchain>=0.1",

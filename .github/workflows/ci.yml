@@ -37,7 +37,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,runtime,runtime-kafka,runtime-azure]"
       - name: Run tests
         run: pytest tests/ -v --tb=short
       - name: Type check
