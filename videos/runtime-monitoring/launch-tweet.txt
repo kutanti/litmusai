@@ -4,5 +4,7 @@ LitmusAI is open source: test agents, monitor live risks, and emit events to web
 
 Your policies. Your response.
 
-Experimental on main. PRs welcome.
+Experimental on main.
 https://github.com/kutanti/litmusai
+
+#AIAgents #OpenSource
