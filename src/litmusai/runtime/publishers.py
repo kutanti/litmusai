@@ -104,6 +104,12 @@ class KafkaPublisher:
     def _produce(self, body: bytes) -> None:
         kafka = importlib.import_module("confluent_kafka")
         config = self.config
+        sasl_credentials = None
+        if config.security_protocol == "SASL_SSL":
+            sasl_credentials = (
+                secret(config.username_env or ""),
+                secret(config.password_env or ""),
+            )
         if self._producer is None:
             options: dict[str, Any] = {
                 "bootstrap.servers": config.bootstrap_servers,
@@ -117,12 +123,12 @@ class KafkaPublisher:
                 # librdkafka logs can contain connection details; expose safe counters instead.
                 "log_level": 0,
             }
-            if config.security_protocol == "SASL_SSL":
+            if sasl_credentials is not None:
                 options.update(
                     {
                         "sasl.mechanism": config.sasl_mechanism,
-                        "sasl.username": secret(config.username_env or ""),
-                        "sasl.password": secret(config.password_env or ""),
+                        "sasl.username": sasl_credentials[0],
+                        "sasl.password": sasl_credentials[1],
                     }
                 )
             for key, value in (
@@ -135,6 +141,10 @@ class KafkaPublisher:
             if config.key_password_env:
                 options["ssl.key.password"] = secret(config.key_password_env)
             self._producer = kafka.Producer(options)
+        elif sasl_credentials is not None:
+            # PLAIN/SCRAM refresh applies to the next authentication without closing
+            # established connections or losing this producer's idempotence state.
+            self._producer.set_sasl_credentials(*sasl_credentials)
         receipt: list[Any] = []
 
         def acknowledged(error: Any, message: Any) -> None:
