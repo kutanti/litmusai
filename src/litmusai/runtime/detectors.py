@@ -29,7 +29,7 @@ def result(
     event = captured.event
     stage: Stage = (
         "attempt"
-        if detector == "prompt_injection"
+        if detector in {"prompt_injection", "prompt_injection_review"}
         else "observed"
         if event.event_type in {"tool.completed", "response.completed"}
         else "requested"
@@ -150,9 +150,12 @@ def sensitive_data(captured: CapturedEvent, policy: ThreatPolicy) -> list[Detect
 class ClassifierVerdict(Contract):
     """Minimal strict semantic response; severity remains an operator policy decision."""
 
-    outcome: Literal["detected", "clear", "insufficient_context"]
+    outcome: Literal["detected", "clear", "insufficient_context", "needs_review"]
     reason: str = Field(min_length=1, max_length=1000)
     context_incomplete: bool = Field(default=False, strict=True)
+    reported_cost_usd: float | None = Field(default=None, ge=0, strict=True)
+    input_tokens: int | None = Field(default=None, ge=0, strict=True)
+    output_tokens: int | None = Field(default=None, ge=0, strict=True)
 
 
 class InjectionClassifier(Protocol):
