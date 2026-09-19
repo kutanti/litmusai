@@ -244,16 +244,31 @@ and broker callbacks. Configure your broker replication/minimum in-sync replicas
 match the required durability. The Event Grid publisher uses the Azure SDK with
 `DefaultAzureCredential` (managed identity where available), or an access-key environment
 reference. It disables nested SDK retries. Clients own Event Grid subscriptions,
-dead-letter storage, and the subscriber's authentication. The example CloudEvents
-subscriber expects an Azure subscription delivery header
-`X-Litmus-Subscription-Token` matching `EVENT_GRID_SUBSCRIPTION_TOKEN`.
+dead-letter storage, and the subscriber's authentication. Configure both the topic's
+input schema and the subscription's event delivery schema as `CloudEventSchemaV1_0`.
+The example subscriber handles the CloudEvents `OPTIONS /events` validation handshake
+without a delivery token; subsequent `POST /events` deliveries require an Azure
+subscription delivery header `X-Litmus-Subscription-Token` matching
+`EVENT_GRID_SUBSCRIPTION_TOKEN`. The handshake grants delivery permission, not
+authentication. It advertises no rate limit; configure throttling at your HTTPS ingress
+for deployment. The native `EventGridSchema` format and its
+`Microsoft.EventGrid.SubscriptionValidationEvent` POST handshake are not supported by
+this CloudEvents receiver. See Microsoft's
+[CloudEvents endpoint validation documentation](https://learn.microsoft.com/en-us/azure/event-grid/end-point-validation-cloud-events-schema).
 
 Each destination has its own worker and retry state. Failures cannot block other
 destinations. Permanent failures and exhausted attempts remain queryable/replayable.
 Policy/classifier/destination versions are immutable; bump the version for changes.
 Outbox records retain their original destination configuration. Removing or changing
-a destination does not reroute pending/replayed events. Secret references are resolved
-at publication, supporting credential rotation without storing secret values.
+a destination does not reroute pending/replayed events. Webhook and Event Grid access
+keys and Kafka SASL username/password references are resolved at publication. Kafka
+refreshes the cached producer's PLAIN/SCRAM credentials for its next authentication;
+existing authenticated connections remain open. TLS certificate/key files and private
+key passwords are loaded when the Kafka producer is created, so restart the collector
+after rotating those values. Environment changes made outside the running process also
+require a restart to become visible. Outbox records store references, never secret
+values. After correcting credentials, explicitly replay any deliveries already marked
+as permanent authentication failures.
 
 ## Deployment, recovery, and limits
 

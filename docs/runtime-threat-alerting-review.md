@@ -23,6 +23,8 @@ findings instead of relying only on the original successful-path tests.
 | Readiness only checked whether worker tasks were alive. | Check worker failures and storage connectivity. Storage errors return a safe unavailable response. |
 | SDK ingestion acknowledgements could be unbounded. | Stream acknowledgements with size/time limits and preserve bounded attempts. An oversized reply is a visible capture failure. |
 | The declared Pydantic 2.0 minimum did not export the new JSON value type. | Require Pydantic 2.5 or later and verify with an isolated 2.5.3 environment. |
+| The Event Grid example did not make its required subscription delivery schema explicit, and its CloudEvents validation response omitted allowed rate/method headers. | Document `CloudEventSchemaV1_0` and the documented `OPTIONS` handshake, return the complete permission headers, and test origin restrictions, token-free validation, authenticated delivery, and deduplication. Native Event Grid schema POST validation is a separate protocol and remains unsupported by this CloudEvents receiver. |
+| Cached Kafka producers resolved SASL credentials only when first created. | Resolve and refresh PLAIN/SCRAM credentials before subsequent publication, including replay after an authentication failure. Tests cover all supported mechanisms and reject missing references instead of using cached secrets. Document that TLS material changes require restart. |
 
 The provider integration review also verified Lakera's documented Detect-mode behavior:
 its top-level `flagged` is forced false. The adapter uses the current message's
@@ -40,12 +42,13 @@ exercise identical canonical event IDs across all three destination adapters.
 
 Environment: Windows build 26200, Python 3.11.4, 12 logical processors.
 
-- Full repository suite after merging the 1.0.0 release baseline: **1,359 passed,
+- Full repository suite after the transport review follow-up: **1,372 passed,
   10 skipped**. Seven skips are pre-existing
   provider-dependent checks; three are the new live Kafka, Event Grid, and Lakera checks.
-- Runtime suite: **67 passed, 3 skipped**.
+- Runtime suite: **80 passed, 3 skipped**, including 13 added transport review regressions.
 - Ruff passed for source, tests, runtime examples, and the benchmark script.
-- Strict mypy passed for all 58 source files.
+- Strict mypy passed for all 58 source files using CI's `--ignore-missing-imports`
+  setting for optional third-party modules.
 - Source distribution and wheel built successfully.
 - Installed the wheel into a clean environment with base dependencies only. Existing
   evaluation, CLI, and runtime SDK imports worked with FastAPI, Uvicorn, Kafka, and

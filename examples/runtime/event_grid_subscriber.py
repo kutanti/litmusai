@@ -1,4 +1,9 @@
-"""CloudEvents subscriber; deploy behind HTTPS with an Event Grid delivery secret header."""
+"""Event Grid subscriber for CloudEventSchemaV1_0 delivery; deploy behind HTTPS.
+
+Configure the subscription's delivery schema as CloudEventSchemaV1_0 and its secret
+delivery header as X-Litmus-Subscription-Token. CloudEvents uses OPTIONS validation;
+the EventGridSchema POST validation event belongs to a different delivery format.
+"""
 
 import hmac
 import json
@@ -16,7 +21,13 @@ async def validate(request: Request) -> Response:
     """Handle CloudEvents webhook validation for Azure Event Grid."""
     if request.headers.get("WebHook-Request-Origin") != "eventgrid.azure.net":
         raise HTTPException(403, "unknown origin")
-    return Response(headers={"WebHook-Allowed-Origin": "eventgrid.azure.net"})
+    return Response(
+        headers={
+            "WebHook-Allowed-Origin": "eventgrid.azure.net",
+            "WebHook-Allowed-Rate": "*",
+            "Allow": "POST, OPTIONS",
+        }
+    )
 
 
 @app.post("/events")
