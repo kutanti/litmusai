@@ -8,7 +8,13 @@ from typing import Literal, Protocol
 import httpx
 from pydantic import Field
 
-from litmusai.runtime.config import ClassifierConfig, ThreatPolicy, ToolUsagePolicy, secret
+from litmusai.runtime.config import (
+    ClassifierConfig,
+    ConversationPolicy,
+    ThreatPolicy,
+    ToolUsagePolicy,
+    secret,
+)
 from litmusai.runtime.models import (
     CapturedEvent,
     Contract,
@@ -21,7 +27,7 @@ from litmusai.runtime.models import (
 
 def result(
     captured: CapturedEvent,
-    policy: ThreatPolicy | ToolUsagePolicy,
+    policy: ThreatPolicy | ToolUsagePolicy | ConversationPolicy,
     detector: str,
     **values: object,
 ) -> DetectionResult:

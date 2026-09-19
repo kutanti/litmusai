@@ -391,6 +391,7 @@ async def test_canonical_delivery_has_usage_and_legacy_alert_retains_null_actor(
     legacy = next(e for e in sent if e["data"]["category"] == "unauthorized_tool")
     assert legacy["data"]["schema_version"] == "1.0" and "usage" not in legacy["data"]
     assert legacy["data"]["actor_id"] is None
+    assert "evaluation" not in legacy["data"] and "risk_score" not in legacy["data"]
 
 
 @pytest.mark.parametrize("values", [{"max_calls": 0}, {"max_calls": True}, {"window_seconds": 0}])

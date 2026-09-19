@@ -311,6 +311,10 @@ Optional [conditional review](runtime-conditional-review.md) sends uncertain
 prompt-injection screens and a configured sample of clear screens to a deeper
 evaluator, with independent budgets, durable jobs, and evaluation telemetry.
 
+Optional [conversation policies](runtime-conversation-policies.md) evaluate trusted
+rubrics with configured HTTP evaluators, cited evidence, applicability filters,
+and optional score thresholds. They require customer-specific quality validation.
+
 Framework callbacks, durable SDK spooling, streaming token inspection, general behavior
 anomaly detection, per-user authorization resolvers, dashboards, distributed workers,
 and guaranteed inline blocking remain outside this pilot.

@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import quote
 
 from litmusai.runtime.config import (
+    ConversationPolicy,
     Destination,
     ProjectConfig,
     RuntimeConfig,
@@ -32,7 +33,7 @@ from litmusai.runtime.models import (
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);
-INSERT OR IGNORE INTO schema_version VALUES (1);
+INSERT OR IGNORE INTO schema_version VALUES (2);
 CREATE TABLE IF NOT EXISTS config_versions (
   kind TEXT, project TEXT, name TEXT, version TEXT, content TEXT,
   PRIMARY KEY(kind, project, name, version));
@@ -86,6 +87,9 @@ CREATE TABLE IF NOT EXISTS budgets (
   project TEXT, minute INTEGER, calls INTEGER, PRIMARY KEY(project,minute));
 CREATE TABLE IF NOT EXISTS review_budgets (
   project TEXT, minute INTEGER, calls INTEGER, PRIMARY KEY(project,minute));
+CREATE TABLE IF NOT EXISTS policy_budgets (
+  project TEXT, policy TEXT, minute INTEGER, calls INTEGER,
+  PRIMARY KEY(project,policy,minute));
 CREATE TABLE IF NOT EXISTS evaluation_metrics (
   project TEXT, stage TEXT, decision TEXT, outcome TEXT, observations INTEGER,
   provider_calls INTEGER, cost_samples INTEGER, reported_cost_usd REAL, elapsed_ms REAL,
@@ -104,11 +108,17 @@ class Store:
         self._lock = threading.RLock()
         self.db = sqlite3.connect(path, check_same_thread=False, timeout=5)
         self.db.row_factory = sqlite3.Row
+        existing = self.db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version'",
+        ).fetchone()
+        if existing:
+            version = self.db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
+            if version not in {1, 2}:
+                self.db.close()
+                raise ValueError("unsupported runtime database version")
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.executescript(_SCHEMA)
-        if self.db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] != 1:
-            raise ValueError("unsupported runtime database version")
 
     def close(self) -> None:
         """Close the store after workers have stopped."""
@@ -138,6 +148,17 @@ class Store:
             ("destination", d.project_id, d.destination_id, d.version, d.model_dump_json())
             for d in config.destinations
         ]
+        versions.extend(
+            (
+                "conversation_policy",
+                p.project_id,
+                rule.policy_id,
+                rule.version,
+                rule.model_dump_json(),
+            )
+            for p in config.projects
+            for rule in p.conversation_policies
+        )
         versions.extend(
             ("usage_policy", p.project_id, rule.policy_id, rule.version, rule.model_dump_json())
             for p in config.projects
@@ -243,6 +264,11 @@ class Store:
                     (*scope, now, inserted.lastrowid),
                 )
             detectors = ["tool_policy", "sensitive_data", "prompt_injection"]
+            detectors.extend(
+                "conversation_policy:" + rule.policy_id
+                for rule in project.conversation_policies
+                if rule.applies(event)
+            )
             if event.event_type == "tool.requested" and isinstance(event.payload, ToolActivity):
                 added = self.db.execute(
                     "INSERT OR IGNORE INTO tool_calls VALUES (?,?,?,?,?,?,?,?,?)",
@@ -268,6 +294,24 @@ class Store:
                 (project.project_id, event.producer_id, event.sequence, int(gap), now),
             )
             for detector in detectors:
+                snapshot = project.model_copy(
+                    update={
+                        "usage_policies": [
+                            p
+                            for p in project.usage_policies
+                            if detector == "tool_usage:" + p.policy_id
+                        ],
+                        "conversation_policies": [
+                            p
+                            for p in project.conversation_policies
+                            if detector == "conversation_policy:" + p.policy_id
+                        ],
+                        "classifier": project.classifier
+                        if detector == "prompt_injection"
+                        else None,
+                        "review": project.review if detector == "prompt_injection" else None,
+                    }
+                )
                 self.db.execute(
                     "INSERT INTO jobs (id,project,event,detector,config,created) "
                     "VALUES (?,?,?,?,?,?)",
@@ -276,7 +320,7 @@ class Store:
                         project.project_id,
                         event.event_id,
                         detector,
-                        project.model_dump_json(),
+                        snapshot.model_dump_json(),
                         now,
                     ),
                 )
@@ -288,15 +332,19 @@ class Store:
         semantic: bool,
         *,
         review: bool = False,
+        policies: bool = False,
     ) -> dict[str, Any] | None:
         """Lease one job; expired leases are recovered without rewriting previous findings."""
         now = time.time()
         lane = (
-            "detector='prompt_injection_review'"
+            "detector LIKE 'conversation_policy:%'"
+            if policies
+            else "detector='prompt_injection_review'"
             if review
             else "detector='prompt_injection'"
             if semantic
-            else "detector NOT IN ('prompt_injection','prompt_injection_review')"
+            else "detector NOT IN ('prompt_injection','prompt_injection_review') "
+            "AND detector NOT LIKE 'conversation_policy:%'"
         )
         with self._lock, self.db:
             row = self.db.execute(
@@ -379,6 +427,23 @@ class Store:
         if trace is None or trace.decision not in {"uncertain_screen", "audit_sample"}:
             raise ValueError("event was not selected for review")
         return trace.decision
+
+    def use_policy_budget(self, project: str, policy: str, maximum: int) -> bool:
+        """Keep each rubric's provider allowance isolated and durable across restarts."""
+        minute = int(time.time() // 60)
+        with self._lock, self.db:
+            row = self.db.execute(
+                "SELECT calls FROM policy_budgets WHERE project=? AND policy=? AND minute=?",
+                (project, policy, minute),
+            ).fetchone()
+            if row and row[0] >= maximum:
+                return False
+            self.db.execute(
+                "INSERT INTO policy_budgets VALUES (?,?,?,1) "
+                "ON CONFLICT(project,policy,minute) DO UPDATE SET calls=calls+1",
+                (project, policy, minute),
+            )
+        return True
 
     def tool_usage(self, captured: CapturedEvent, policy: ToolUsagePolicy) -> DetectionResult:
         """Evaluate a receipt-time window from durable, deduplicated request observations."""
@@ -506,7 +571,7 @@ class Store:
         job: dict[str, Any],
         results: list[DetectionResult],
         captured: CapturedEvent,
-        policy: ThreatPolicy | ToolUsagePolicy,
+        policy: ThreatPolicy | ToolUsagePolicy | ConversationPolicy,
         destinations: list[Destination],
         *,
         follow_up: bool = False,
@@ -533,7 +598,7 @@ class Store:
                         finding.model_dump_json(
                             exclude={
                                 name
-                                for name in ("usage", "evaluation")
+                                for name in ("usage", "evaluation", "risk_score")
                                 if getattr(finding, name) is None
                             },
                         ),
@@ -586,7 +651,7 @@ class Store:
         self,
         captured: CapturedEvent,
         finding: DetectionResult,
-        policy: ThreatPolicy | ToolUsagePolicy,
+        policy: ThreatPolicy | ToolUsagePolicy | ConversationPolicy,
         destinations: list[Destination],
         now: float,
     ) -> bool:
@@ -632,7 +697,13 @@ class Store:
             )
         )[-50:]
         alert = ThreatAlert(
-            schema_version="1.2" if finding.evaluation else "1.1" if finding.usage else "1.0",
+            schema_version="1.3"
+            if finding.evaluation and finding.evaluation.stage == "policy"
+            else "1.2"
+            if finding.evaluation
+            else "1.1"
+            if finding.usage
+            else "1.0",
             alert_id=previous.alert_id if previous else new_id(),
             revision=previous.revision + 1 if previous else 1,
             project_id=event.project_id,
@@ -654,6 +725,7 @@ class Store:
             context_incomplete=finding.context_incomplete,
             usage=finding.usage,
             evaluation=finding.evaluation,
+            risk_score=finding.risk_score,
         )
         envelope = CloudEvent(
             source=f"urn:litmusai:project:{quote(event.project_id, safe='')}",
@@ -671,7 +743,9 @@ class Store:
                 alert.revision,
                 alert.model_dump_json(
                     exclude={
-                        name for name in ("usage", "evaluation") if getattr(alert, name) is None
+                        name
+                        for name in ("usage", "evaluation", "risk_score")
+                        if getattr(alert, name) is None
                     }
                 ),
                 now,
@@ -688,7 +762,7 @@ class Store:
                     exclude={
                         "data": {
                             name
-                            for name in ("usage", "evaluation")
+                            for name in ("usage", "evaluation", "risk_score")
                             if getattr(finding, name) is None
                         }
                     },
@@ -942,6 +1016,9 @@ class Store:
             self.db.execute("DELETE FROM usage_gaps WHERE received<?", (cutoff,))
             self.db.execute("DELETE FROM producers WHERE updated<?", (cutoff,))
             self.db.execute("DELETE FROM budgets WHERE minute<?", (int(time.time() // 60) - 2,))
+            self.db.execute(
+                "DELETE FROM policy_budgets WHERE minute<?", (int(time.time() // 60) - 2,)
+            )
             self.db.execute(
                 "DELETE FROM review_budgets WHERE minute<?", (int(time.time() // 60) - 2,)
             )
