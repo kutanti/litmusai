@@ -40,11 +40,12 @@ exercise identical canonical event IDs across all three destination adapters.
 
 Environment: Windows build 26200, Python 3.11.4, 12 logical processors.
 
-- Full repository suite: **1,262 passed, 10 skipped**. Seven skips are pre-existing
+- Full repository suite after merging the 1.0.0 release baseline: **1,359 passed,
+  10 skipped**. Seven skips are pre-existing
   provider-dependent checks; three are the new live Kafka, Event Grid, and Lakera checks.
 - Runtime suite: **67 passed, 3 skipped**.
 - Ruff passed for source, tests, runtime examples, and the benchmark script.
-- Strict mypy passed for all 56 source files.
+- Strict mypy passed for all 58 source files.
 - Source distribution and wheel built successfully.
 - Installed the wheel into a clean environment with base dependencies only. Existing
   evaluation, CLI, and runtime SDK imports worked with FastAPI, Uvicorn, Kafka, and
