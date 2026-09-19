@@ -8,16 +8,25 @@ import math
 import sqlite3
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from litmusai.runtime.config import Destination, ProjectConfig, RuntimeConfig, ThreatPolicy
+from litmusai.runtime.config import (
+    Destination,
+    ProjectConfig,
+    RuntimeConfig,
+    ThreatPolicy,
+    ToolUsagePolicy,
+)
 from litmusai.runtime.models import (
     CapturedEvent,
     CloudEvent,
     DetectionResult,
     ThreatAlert,
+    ToolActivity,
+    ToolUsageEvidence,
     new_id,
 )
 
@@ -32,6 +41,19 @@ CREATE TABLE IF NOT EXISTS events (
   sequence INTEGER, received REAL, content TEXT,
   PRIMARY KEY(project,id), UNIQUE(project,producer,sequence));
 CREATE INDEX IF NOT EXISTS event_context ON events(project,agent,deployment,session,received);
+CREATE TABLE IF NOT EXISTS tool_calls (
+  project TEXT, agent TEXT, deployment TEXT, session TEXT, call_id TEXT,
+  event TEXT, name TEXT, received REAL, position INTEGER,
+  PRIMARY KEY(project,agent,deployment,session,call_id));
+CREATE INDEX IF NOT EXISTS tool_call_window
+  ON tool_calls(project,agent,deployment,session,received);
+CREATE UNIQUE INDEX IF NOT EXISTS tool_call_event ON tool_calls(project,event);
+CREATE INDEX IF NOT EXISTS tool_call_order
+  ON tool_calls(project,agent,deployment,session,position);
+CREATE TABLE IF NOT EXISTS usage_gaps (
+  project TEXT, agent TEXT, deployment TEXT, session TEXT, received REAL, position INTEGER);
+CREATE INDEX IF NOT EXISTS usage_gap_window
+  ON usage_gaps(project,agent,deployment,session,received);
 CREATE TABLE IF NOT EXISTS producers (
   project TEXT, id TEXT, sequence INTEGER, gaps INTEGER DEFAULT 0, updated REAL,
   PRIMARY KEY(project,id));
@@ -111,6 +133,11 @@ class Store:
             for d in config.destinations
         ]
         versions.extend(
+            ("usage_policy", p.project_id, rule.policy_id, rule.version, rule.model_dump_json())
+            for p in config.projects
+            for rule in p.usage_policies
+        )
+        versions.extend(
             (
                 "classifier",
                 p.project_id,
@@ -176,7 +203,7 @@ class Store:
             gap = event.sequence != (producer[0] + 1 if producer else 1)
             captured = captured.model_copy(update={"capture_gap": gap})
             try:
-                self.db.execute(
+                inserted = self.db.execute(
                     "INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?)",
                     (
                         project.project_id,
@@ -192,13 +219,38 @@ class Store:
                 )
             except sqlite3.IntegrityError:
                 return "conflict"
+            scope = (event.project_id, event.agent_id, event.deployment_id, event.session_id)
+            if gap:
+                self.db.execute(
+                    "INSERT INTO usage_gaps VALUES (?,?,?,?,?,?)",
+                    (*scope, now, inserted.lastrowid),
+                )
+            detectors = ["tool_policy", "sensitive_data", "prompt_injection"]
+            if event.event_type == "tool.requested" and isinstance(event.payload, ToolActivity):
+                added = self.db.execute(
+                    "INSERT OR IGNORE INTO tool_calls VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        *scope,
+                        event.tool_call_id,
+                        event.event_id,
+                        event.payload.name,
+                        now,
+                        inserted.lastrowid,
+                    ),
+                ).rowcount
+                if added:
+                    detectors.extend(
+                        "tool_usage:" + rule.policy_id
+                        for rule in project.usage_policies
+                        if rule.applies(event)
+                    )
             self.db.execute(
                 "INSERT INTO producers VALUES (?,?,?,?,?) ON CONFLICT(project,id) DO UPDATE SET "
                 "sequence=MAX(sequence,excluded.sequence), gaps=gaps+excluded.gaps, "
                 "updated=excluded.updated",
                 (project.project_id, event.producer_id, event.sequence, int(gap), now),
             )
-            for detector in ("tool_policy", "sensitive_data", "prompt_injection"):
+            for detector in detectors:
                 self.db.execute(
                     "INSERT INTO jobs (id,project,event,detector,config,created) "
                     "VALUES (?,?,?,?,?,?)",
@@ -282,12 +334,133 @@ class Store:
             )
         return True
 
+    def tool_usage(self, captured: CapturedEvent, policy: ToolUsagePolicy) -> DetectionResult:
+        """Evaluate a receipt-time window from durable, deduplicated request observations."""
+        event = captured.event
+        scope = (event.project_id, event.agent_id, event.deployment_id, event.session_id)
+        with self._lock:
+            current = self.db.execute(
+                "SELECT received,position FROM tool_calls WHERE project=? AND agent=? "
+                "AND deployment=? AND session=? AND event=?",
+                (*scope, event.event_id),
+            ).fetchone()
+            if current is None:
+                raise ValueError("tool request observation unavailable")
+            end, position = current
+            start = end - policy.window_seconds
+            where = (
+                "project=? AND agent=? AND deployment=? AND session=? "
+                "AND received>? AND received<=? AND position<=?"
+            )
+            params: tuple[Any, ...] = (*scope, start, end, position)
+            incomplete = bool(
+                self.db.execute(
+                    "SELECT 1 FROM usage_gaps WHERE " + where + " LIMIT 1",
+                    params,
+                ).fetchone()
+            )
+            if policy.tools:
+                where += " AND name IN (" + ",".join("?" for _ in policy.tools) + ")"
+                params += tuple(policy.tools)
+            count = self.db.execute(
+                "SELECT COUNT(*) FROM tool_calls WHERE " + where,
+                params,
+            ).fetchone()[0]
+            rows = self.db.execute(
+                "SELECT event FROM tool_calls WHERE " + where + " ORDER BY position DESC LIMIT 50",
+                params,
+            ).fetchall()
+            crossed = self._usage_crossed(scope, position, count, policy)
+        exceeded = count > policy.max_calls
+        usage = ToolUsageEvidence(
+            observed_count=count,
+            limit=policy.max_calls,
+            window_seconds=policy.window_seconds,
+            window_start=datetime.fromtimestamp(start, timezone.utc),
+            window_end=datetime.fromtimestamp(end, timezone.utc),
+            threshold_crossed=crossed,
+            source_events_truncated=count > len(rows),
+        )
+        return DetectionResult(
+            event_id=event.event_id,
+            detector="tool_usage",
+            policy_id=policy.policy_id,
+            policy_version=policy.version,
+            category="excessive_tool_usage",
+            severity=policy.severity,
+            stage="requested",
+            outcome="detected" if exceeded else "insufficient_context" if incomplete else "clear",
+            reason="conversation tool-call limit exceeded"
+            if exceeded
+            else "capture gaps; observed count is a lower bound"
+            if incomplete
+            else "observed tool-call count is within the configured limit",
+            evidence=[
+                f"distinct tool requests={count}; limit={policy.max_calls}; "
+                f"window_seconds={policy.window_seconds}; basis=collector_received_at"
+            ],
+            source_event_ids=[row[0] for row in reversed(rows)],
+            context_incomplete=incomplete,
+            usage=usage,
+        )
+
+    def _usage_crossed(
+        self,
+        scope: tuple[str, str, str, str],
+        position: int,
+        count: int,
+        policy: ToolUsagePolicy,
+    ) -> bool:
+        """Also notify when enabling/lowering a policy over an already busy conversation."""
+        if count <= policy.max_calls:
+            return False
+        if count == policy.max_calls + 1:
+            return True
+        tool_filter = ""
+        previous_params: tuple[Any, ...] = ("tool_usage:" + policy.policy_id, *scope, position)
+        if policy.tools:
+            tool_filter = " AND c.name IN (" + ",".join("?" for _ in policy.tools) + ")"
+            previous_params += tuple(policy.tools)
+        previous = self.db.execute(
+            "SELECT c.received,c.position,j.config FROM tool_calls c LEFT JOIN jobs j "
+            "ON c.project=j.project AND c.event=j.event AND j.detector=? "
+            "WHERE c.project=? AND c.agent=? AND c.deployment=? AND c.session=? "
+            "AND c.position<?" + tool_filter + " ORDER BY c.position DESC LIMIT 1",
+            previous_params,
+        ).fetchone()
+        if previous is None or previous["config"] is None:
+            return True
+        settings = ProjectConfig.model_validate_json(previous["config"])
+        if not any(
+            p.policy_id == policy.policy_id and p.version == policy.version
+            for p in settings.usage_policies
+        ):
+            return True
+        where = (
+            "project=? AND agent=? AND deployment=? AND session=? "
+            "AND received>? AND received<=? AND position<=?"
+        )
+        params: tuple[Any, ...] = (
+            *scope,
+            previous["received"] - policy.window_seconds,
+            previous["received"],
+            previous["position"],
+        )
+        if policy.tools:
+            where += " AND name IN (" + ",".join("?" for _ in policy.tools) + ")"
+            params += tuple(policy.tools)
+        prior_count = self.db.execute(
+            "SELECT COUNT(*) FROM tool_calls WHERE " + where,
+            params,
+        ).fetchone()[0]
+        return bool(prior_count <= policy.max_calls)
+
     def finish_job(
         self,
         job: dict[str, Any],
         results: list[DetectionResult],
         captured: CapturedEvent,
-        policy: ThreatPolicy,
+        policy: ThreatPolicy | ToolUsagePolicy,
         destinations: list[Destination],
     ) -> bool:
         """Commit findings, alert revisions and matching destination outbox entries together."""
@@ -309,7 +482,9 @@ class Store:
                         new_id(),
                         job["project"],
                         job["id"],
-                        finding.model_dump_json(),
+                        finding.model_dump_json(
+                            exclude={"usage"} if finding.usage is None else None
+                        ),
                         int(suppressed),
                         now,
                         finding.detector,
@@ -325,11 +500,13 @@ class Store:
         self,
         captured: CapturedEvent,
         finding: DetectionResult,
-        policy: ThreatPolicy,
+        policy: ThreatPolicy | ToolUsagePolicy,
         destinations: list[Destination],
         now: float,
     ) -> bool:
         assert finding.category is not None
+        if finding.usage and not finding.usage.threshold_crossed:
+            return True
         event = captured.event
         episode = json.dumps(
             [
@@ -369,6 +546,7 @@ class Store:
             )
         )[-50:]
         alert = ThreatAlert(
+            schema_version="1.1" if finding.usage else "1.0",
             alert_id=previous.alert_id if previous else new_id(),
             revision=previous.revision + 1 if previous else 1,
             project_id=event.project_id,
@@ -388,6 +566,7 @@ class Store:
             detector_version=finding.detector_version,
             observed_at=event.observed_at,
             context_incomplete=finding.context_incomplete,
+            usage=finding.usage,
         )
         envelope = CloudEvent(
             source=f"urn:litmusai:project:{quote(event.project_id, safe='')}",
@@ -403,7 +582,7 @@ class Store:
                 alert.alert_id,
                 episode,
                 alert.revision,
-                alert.model_dump_json(),
+                alert.model_dump_json(exclude={"usage"} if alert.usage is None else None),
                 now,
             ),
         )
@@ -414,7 +593,9 @@ class Store:
                 event.project_id,
                 alert.alert_id,
                 alert.revision,
-                envelope.model_dump_json(),
+                envelope.model_dump_json(
+                    exclude={"data": {"usage"}} if finding.usage is None else None,
+                ),
                 now,
                 captured.received_at.timestamp(),
             ),
@@ -651,5 +832,7 @@ class Store:
                 self.db.execute(f"DELETE FROM {table} WHERE created<?", (cutoff,))
             self.db.execute("DELETE FROM alerts WHERE updated<?", (cutoff,))
             self.db.execute("DELETE FROM events WHERE received<?", (cutoff,))
+            self.db.execute("DELETE FROM tool_calls WHERE received<?", (cutoff,))
+            self.db.execute("DELETE FROM usage_gaps WHERE received<?", (cutoff,))
             self.db.execute("DELETE FROM producers WHERE updated<?", (cutoff,))
             self.db.execute("DELETE FROM budgets WHERE minute<?", (int(time.time() // 60) - 2,))

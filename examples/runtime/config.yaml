@@ -8,6 +8,12 @@ projects:
       allowed_tools: [send_email]
       allowed_destinations: [support@example.com]
       destination_tools: [send_email]
+    usage_policies:
+      - policy_id: conversation-tool-limit
+        version: "1"
+        max_calls: 20
+        window_seconds: 60
+        severity: high
     # Optional: requires your own evaluated provider project and credential.
     # classifier:
     #   provider: lakera

@@ -13,6 +13,8 @@ from litmusai.runtime.config import (
     Destination,
     ProjectConfig,
     RuntimeConfig,
+    ThreatPolicy,
+    ToolUsagePolicy,
 )
 from litmusai.runtime.detectors import (
     HTTPInjectionClassifier,
@@ -91,10 +93,18 @@ class Engine:
             return False
         captured = self.store.captured(project, job["event"])
         settings = ProjectConfig.model_validate_json(job["config"])
-        policy = settings.policy
+        policy: ThreatPolicy | ToolUsagePolicy = settings.policy
+        if job["detector"].startswith("tool_usage:"):
+            policy = next(
+                p
+                for p in settings.usage_policies
+                if p.policy_id == job["detector"].removeprefix("tool_usage:")
+            )
         try:
-            if job["detector"] == "tool_policy":
-                findings = tool_policy(captured, policy)
+            if isinstance(policy, ToolUsagePolicy):
+                findings = [self.store.tool_usage(captured, policy)]
+            elif job["detector"] == "tool_policy":
+                findings = tool_policy(captured, settings.policy)
             elif job["detector"] == "sensitive_data":
                 findings = sensitive_data(captured, policy)
             else:
@@ -115,7 +125,7 @@ class Engine:
                 )
             ]
         # An external adapter must never persist echoed protected values.
-        redactor = Redactor(policy)
+        redactor = Redactor(settings.policy)
         safe = [
             finding.model_copy(
                 update={
