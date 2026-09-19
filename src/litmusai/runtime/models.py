@@ -10,7 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 Identifier = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[\w.:-]+$")]
 Category = Literal[
-    "unauthorized_tool", "forbidden_destination", "sensitive_data", "prompt_injection"
+    "unauthorized_tool",
+    "forbidden_destination",
+    "sensitive_data",
+    "prompt_injection",
+    "excessive_tool_usage",
 ]
 Severity = Literal["low", "medium", "high", "critical"]
 Outcome = Literal["clear", "detected", "insufficient_context", "error", "skipped"]
@@ -129,6 +133,19 @@ class CapturedEvent(Contract):
     capture_gap: bool = False
 
 
+class ToolUsageEvidence(Contract):
+    """An observed count, not an estimate of malicious intent or risk probability."""
+
+    observed_count: int = Field(ge=1)
+    limit: int = Field(ge=1)
+    window_seconds: int = Field(ge=1)
+    window_start: datetime
+    window_end: datetime
+    counting_basis: Literal["collector_received_at"] = "collector_received_at"
+    threshold_crossed: bool
+    source_events_truncated: bool = False
+
+
 class DetectionResult(Contract):
     """A detector outcome, kept separate from delivery and processing state."""
 
@@ -145,12 +162,13 @@ class DetectionResult(Contract):
     evidence: list[str] = Field(default_factory=list)
     source_event_ids: list[str] = Field(default_factory=list)
     context_incomplete: bool = False
+    usage: ToolUsageEvidence | None = None
 
 
 class ThreatAlert(Contract):
     """An immutable revision of a logical threat episode."""
 
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.0", "1.1"] = "1.0"
     alert_id: str
     revision: int = Field(ge=1)
     project_id: str
@@ -171,6 +189,7 @@ class ThreatAlert(Contract):
     observed_at: datetime
     detected_at: datetime = Field(default_factory=utcnow)
     context_incomplete: bool = False
+    usage: ToolUsageEvidence | None = None
 
 
 class CloudEvent(Contract):

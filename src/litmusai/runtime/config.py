@@ -10,7 +10,14 @@ from urllib.parse import urlsplit
 import yaml
 from pydantic import Field, TypeAdapter, model_validator
 
-from litmusai.runtime.models import Category, Contract, Identifier, Severity
+from litmusai.runtime.models import (
+    Category,
+    Contract,
+    Identifier,
+    RuntimeEvent,
+    Severity,
+    ToolActivity,
+)
 
 
 def secret(name: str) -> str:
@@ -71,6 +78,30 @@ class ThreatPolicy(Contract):
     cooldown_seconds: float = Field(default=30, ge=0, le=3600)
 
 
+class ToolUsagePolicy(Contract):
+    """Alert when distinct captured tool requests exceed a conversation window limit."""
+
+    policy_id: Identifier
+    version: Identifier = "1"
+    max_calls: int = Field(ge=1, le=10000, strict=True)
+    window_seconds: int = Field(default=60, ge=1, le=3600, strict=True)
+    tools: list[Identifier] = Field(default_factory=list, max_length=100)
+    agents: list[Identifier] = Field(default_factory=list, max_length=100)
+    deployments: list[Identifier] = Field(default_factory=list, max_length=100)
+    severity: Severity = "high"
+    cooldown_seconds: Literal[0] = 0
+
+    def applies(self, event: RuntimeEvent) -> bool:
+        """Only actual request boundaries in the configured scope count."""
+        return (
+            event.event_type == "tool.requested"
+            and isinstance(event.payload, ToolActivity)
+            and (not self.tools or event.payload.name in self.tools)
+            and (not self.agents or event.agent_id in self.agents)
+            and (not self.deployments or event.deployment_id in self.deployments)
+        )
+
+
 class ClassifierConfig(Contract):
     """Contract-compatible classifier endpoint; disabled unless explicitly configured."""
 
@@ -100,10 +131,19 @@ class ProjectConfig(Contract):
     project_id: Identifier
     api_key_env: Identifier
     policy: ThreatPolicy = Field(default_factory=ThreatPolicy)
+    usage_policies: list[ToolUsagePolicy] = Field(default_factory=list, max_length=20)
     classifier: ClassifierConfig | None = None
     max_pending_events: int = Field(default=10000, ge=1, le=1000000)
     max_stored_events: int = Field(default=100000, ge=1, le=1000000)
     max_pending_deliveries: int = Field(default=20000, ge=1, le=1000000)
+
+    @model_validator(mode="after")
+    def policy_ids_unique(self) -> ProjectConfig:
+        """Avoid ambiguous policy identities within a project."""
+        ids = [self.policy.policy_id, *(p.policy_id for p in self.usage_policies)]
+        if len(ids) != len(set(ids)):
+            raise ValueError("policy IDs must be unique within a project")
+        return self
 
 
 class DestinationBase(Contract):

@@ -303,6 +303,10 @@ infrastructure. Optional smoke tests use `LITMUS_TEST_KAFKA_BOOTSTRAP` or
 `LITMUS_TEST_EVENT_GRID_ENDPOINT` plus `LITMUS_TEST_EVENT_GRID_KEY`; use disposable
 infrastructure. The Kafka integration workflow provisions a disposable broker in CI.
 
+Conversation tool-call limits are available through optional versioned
+[`usage_policies`](runtime-tool-usage.md). They count distinct requests in a rolling
+conversation window and emit events through the same destinations.
+
 Framework callbacks, durable SDK spooling, streaming token inspection, general behavior
 anomaly detection, per-user authorization resolvers, dashboards, distributed workers,
 and guaranteed inline blocking remain outside this pilot.
