@@ -2,17 +2,21 @@
 
 import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from examples.runtime.event_grid_subscriber import app
 from litmusai.runtime.engine import Engine
 from litmusai.runtime.redaction import Redactor
 
 
 @pytest.fixture
 def subscriber(tmp_path, monkeypatch):
+    # Examples are repository files, not part of the installed distribution.
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
+    from examples.runtime.event_grid_subscriber import app
+
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("EVENT_GRID_SUBSCRIPTION_TOKEN", "synthetic-delivery-token")
     with TestClient(app) as client:
