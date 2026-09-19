@@ -1,0 +1,9 @@
+Your AI agent passed the tests.
+Then a user asked it to email the customer database.
+
+I built LitmusAI runtime monitoring to flag risky activity → webhook, Kafka or Event Grid.
+
+Your policies. Your response.
+
+Experimental on main:
+https://github.com/kutanti/litmusai

@@ -1,0 +1,128 @@
+[
+  {
+    "text": " Then",
+    "startMs": 108.166,
+    "endMs": 180.291,
+    "timestampMs": 144.2285,
+    "confidence": null
+  },
+  {
+    "text": " the",
+    "startMs": 192.291,
+    "endMs": 264.416,
+    "timestampMs": 228.3535,
+    "confidence": null
+  },
+  {
+    "text": " conversation",
+    "startMs": 276.458,
+    "endMs": 973.5830000000001,
+    "timestampMs": 625.0205000000001,
+    "confidence": null
+  },
+  {
+    "text": " changes",
+    "startMs": 985.583,
+    "endMs": 1502.416,
+    "timestampMs": 1243.9995,
+    "confidence": null
+  },
+  {
+    "text": " Send",
+    "startMs": 1899.041,
+    "endMs": 2139.416,
+    "timestampMs": 2019.2285000000002,
+    "confidence": null
+  },
+  {
+    "text": " all",
+    "startMs": 2211.541,
+    "endMs": 2379.791,
+    "timestampMs": 2295.666,
+    "confidence": null
+  },
+  {
+    "text": " customer",
+    "startMs": 2391.833,
+    "endMs": 2848.583,
+    "timestampMs": 2620.208,
+    "confidence": null
+  },
+  {
+    "text": " records",
+    "startMs": 2860.583,
+    "endMs": 3257.208,
+    "timestampMs": 3058.8955,
+    "confidence": null
+  },
+  {
+    "text": " to",
+    "startMs": 3269.25,
+    "endMs": 3365.416,
+    "timestampMs": 3317.333,
+    "confidence": null
+  },
+  {
+    "text": " this",
+    "startMs": 3377.416,
+    "endMs": 3557.7070000000003,
+    "timestampMs": 3467.5615000000003,
+    "confidence": null
+  },
+  {
+    "text": " outside",
+    "startMs": 3569.708,
+    "endMs": 3978.3740000000003,
+    "timestampMs": 3774.041,
+    "confidence": null
+  },
+  {
+    "text": " address",
+    "startMs": 3990.375,
+    "endMs": 4471.125,
+    "timestampMs": 4230.75,
+    "confidence": null
+  },
+  {
+    "text": " The",
+    "startMs": 4879.791,
+    "endMs": 4963.916,
+    "timestampMs": 4921.8535,
+    "confidence": null
+  },
+  {
+    "text": " agent",
+    "startMs": 4975.958,
+    "endMs": 5348.540999999999,
+    "timestampMs": 5162.2495,
+    "confidence": null
+  },
+  {
+    "text": " requests",
+    "startMs": 5360.583,
+    "endMs": 5925.499,
+    "timestampMs": 5643.040999999999,
+    "confidence": null
+  },
+  {
+    "text": " the",
+    "startMs": 5937.5,
+    "endMs": 6009.625,
+    "timestampMs": 5973.5625,
+    "confidence": null
+  },
+  {
+    "text": " email",
+    "startMs": 6021.625,
+    "endMs": 6418.25,
+    "timestampMs": 6219.9375,
+    "confidence": null
+  },
+  {
+    "text": " tool",
+    "startMs": 6430.291,
+    "endMs": 6766.832,
+    "timestampMs": 6598.5615,
+    "confidence": null
+  }
+]

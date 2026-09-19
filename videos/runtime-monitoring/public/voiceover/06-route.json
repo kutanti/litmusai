@@ -1,0 +1,114 @@
+[
+  {
+    "text": " Send",
+    "startMs": 96.166,
+    "endMs": 252.416,
+    "timestampMs": 174.291,
+    "confidence": null
+  },
+  {
+    "text": " it",
+    "startMs": 264.416,
+    "endMs": 336.541,
+    "timestampMs": 300.4785,
+    "confidence": null
+  },
+  {
+    "text": " to",
+    "startMs": 348.541,
+    "endMs": 468.749,
+    "timestampMs": 408.645,
+    "confidence": null
+  },
+  {
+    "text": " a",
+    "startMs": 480.75,
+    "endMs": 552.875,
+    "timestampMs": 516.8125,
+    "confidence": null
+  },
+  {
+    "text": " webhook",
+    "startMs": 564.916,
+    "endMs": 1069.707,
+    "timestampMs": 817.3115,
+    "confidence": null
+  },
+  {
+    "text": " Kafka",
+    "startMs": 1310.083,
+    "endMs": 1886.9990000000003,
+    "timestampMs": 1598.5410000000002,
+    "confidence": null
+  },
+  {
+    "text": " or",
+    "startMs": 2139.416,
+    "endMs": 2307.666,
+    "timestampMs": 2223.541,
+    "confidence": null
+  },
+  {
+    "text": " Azure",
+    "startMs": 2319.708,
+    "endMs": 2620.208,
+    "timestampMs": 2469.958,
+    "confidence": null
+  },
+  {
+    "text": " Event",
+    "startMs": 2632.208,
+    "endMs": 2896.6240000000003,
+    "timestampMs": 2764.416,
+    "confidence": null
+  },
+  {
+    "text": " Grid",
+    "startMs": 2908.666,
+    "endMs": 3221.166,
+    "timestampMs": 3064.916,
+    "confidence": null
+  },
+  {
+    "text": " Your",
+    "startMs": 3617.791,
+    "endMs": 3737.9990000000003,
+    "timestampMs": 3677.8950000000004,
+    "confidence": null
+  },
+  {
+    "text": " system",
+    "startMs": 3750.0,
+    "endMs": 4110.583,
+    "timestampMs": 3930.2915,
+    "confidence": null
+  },
+  {
+    "text": " decides",
+    "startMs": 4122.583,
+    "endMs": 4579.333,
+    "timestampMs": 4350.958,
+    "confidence": null
+  },
+  {
+    "text": " how",
+    "startMs": 4591.333,
+    "endMs": 4699.499,
+    "timestampMs": 4645.415999999999,
+    "confidence": null
+  },
+  {
+    "text": " to",
+    "startMs": 4711.541,
+    "endMs": 4807.707,
+    "timestampMs": 4759.624,
+    "confidence": null
+  },
+  {
+    "text": " respond",
+    "startMs": 4819.708,
+    "endMs": 5384.624,
+    "timestampMs": 5102.165999999999,
+    "confidence": null
+  }
+]

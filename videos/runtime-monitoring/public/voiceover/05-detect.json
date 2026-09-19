@@ -1,0 +1,121 @@
+[
+  {
+    "text": " A",
+    "startMs": 96.166,
+    "endMs": 156.249,
+    "timestampMs": 126.2075,
+    "confidence": null
+  },
+  {
+    "text": " configured",
+    "startMs": 168.25,
+    "endMs": 733.166,
+    "timestampMs": 450.708,
+    "confidence": null
+  },
+  {
+    "text": " destination",
+    "startMs": 745.208,
+    "endMs": 1418.291,
+    "timestampMs": 1081.7495,
+    "confidence": null
+  },
+  {
+    "text": " rule",
+    "startMs": 1430.291,
+    "endMs": 1598.541,
+    "timestampMs": 1514.416,
+    "confidence": null
+  },
+  {
+    "text": " flags",
+    "startMs": 1610.583,
+    "endMs": 2031.249,
+    "timestampMs": 1820.9160000000002,
+    "confidence": null
+  },
+  {
+    "text": " that",
+    "startMs": 2043.25,
+    "endMs": 2199.5,
+    "timestampMs": 2121.375,
+    "confidence": null
+  },
+  {
+    "text": " request",
+    "startMs": 2211.541,
+    "endMs": 2752.416,
+    "timestampMs": 2481.9785,
+    "confidence": null
+  },
+  {
+    "text": " You",
+    "startMs": 3149.041,
+    "endMs": 3245.2070000000003,
+    "timestampMs": 3197.1240000000003,
+    "confidence": null
+  },
+  {
+    "text": " get",
+    "startMs": 3257.208,
+    "endMs": 3389.416,
+    "timestampMs": 3323.312,
+    "confidence": null
+  },
+  {
+    "text": " an",
+    "startMs": 3401.458,
+    "endMs": 3473.583,
+    "timestampMs": 3437.5205,
+    "confidence": null
+  },
+  {
+    "text": " event",
+    "startMs": 3485.583,
+    "endMs": 3822.1240000000003,
+    "timestampMs": 3653.8535,
+    "confidence": null
+  },
+  {
+    "text": " with",
+    "startMs": 3834.125,
+    "endMs": 3942.291,
+    "timestampMs": 3888.208,
+    "confidence": null
+  },
+  {
+    "text": " the",
+    "startMs": 3954.333,
+    "endMs": 4026.458,
+    "timestampMs": 3990.3955,
+    "confidence": null
+  },
+  {
+    "text": " conversation",
+    "startMs": 4038.458,
+    "endMs": 4807.7080000000005,
+    "timestampMs": 4423.0830000000005,
+    "confidence": null
+  },
+  {
+    "text": " policy",
+    "startMs": 5024.041,
+    "endMs": 5600.957,
+    "timestampMs": 5312.499,
+    "confidence": null
+  },
+  {
+    "text": " and",
+    "startMs": 5769.25,
+    "endMs": 5889.458,
+    "timestampMs": 5829.353999999999,
+    "confidence": null
+  },
+  {
+    "text": " evidence",
+    "startMs": 5901.458,
+    "endMs": 6454.333,
+    "timestampMs": 6177.8955,
+    "confidence": null
+  }
+]
