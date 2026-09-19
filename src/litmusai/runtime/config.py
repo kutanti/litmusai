@@ -125,6 +125,18 @@ class ClassifierConfig(Contract):
         return self
 
 
+class ReviewConfig(Contract):
+    """Escalate uncertain screening results and audit a deterministic sample of clears."""
+
+    version: Identifier
+    evaluator: ClassifierConfig
+    on_outcomes: list[Literal["needs_review", "insufficient_context", "error"]] = Field(
+        default=["needs_review", "insufficient_context"],
+        max_length=3,
+    )
+    clear_sample_rate: float = Field(default=0.01, ge=0, le=1)
+
+
 class ProjectConfig(Contract):
     """Project identity comes from authentication, never a model assertion."""
 
@@ -133,6 +145,7 @@ class ProjectConfig(Contract):
     policy: ThreatPolicy = Field(default_factory=ThreatPolicy)
     usage_policies: list[ToolUsagePolicy] = Field(default_factory=list, max_length=20)
     classifier: ClassifierConfig | None = None
+    review: ReviewConfig | None = None
     max_pending_events: int = Field(default=10000, ge=1, le=1000000)
     max_stored_events: int = Field(default=100000, ge=1, le=1000000)
     max_pending_deliveries: int = Field(default=20000, ge=1, le=1000000)
@@ -143,6 +156,8 @@ class ProjectConfig(Contract):
         ids = [self.policy.policy_id, *(p.policy_id for p in self.usage_policies)]
         if len(ids) != len(set(ids)):
             raise ValueError("policy IDs must be unique within a project")
+        if self.review and self.classifier is None:
+            raise ValueError("conditional review requires a first-stage classifier")
         return self
 
 

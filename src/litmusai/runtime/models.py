@@ -17,7 +17,7 @@ Category = Literal[
     "excessive_tool_usage",
 ]
 Severity = Literal["low", "medium", "high", "critical"]
-Outcome = Literal["clear", "detected", "insufficient_context", "error", "skipped"]
+Outcome = Literal["clear", "detected", "insufficient_context", "needs_review", "error", "skipped"]
 Stage = Literal["attempt", "requested", "observed"]
 
 
@@ -146,6 +146,21 @@ class ToolUsageEvidence(Contract):
     source_events_truncated: bool = False
 
 
+class EvaluationTrace(Contract):
+    """Selection and measured provider telemetry; absent cost is not zero cost."""
+
+    stage: Literal["screen", "review"]
+    decision: str
+    screen_version: str
+    review_version: str
+    gate_version: str
+    provider_called: bool = False
+    elapsed_ms: float = Field(default=0, ge=0)
+    reported_cost_usd: float | None = Field(default=None, ge=0, strict=True)
+    input_tokens: int | None = Field(default=None, ge=0, strict=True)
+    output_tokens: int | None = Field(default=None, ge=0, strict=True)
+
+
 class DetectionResult(Contract):
     """A detector outcome, kept separate from delivery and processing state."""
 
@@ -163,12 +178,13 @@ class DetectionResult(Contract):
     source_event_ids: list[str] = Field(default_factory=list)
     context_incomplete: bool = False
     usage: ToolUsageEvidence | None = None
+    evaluation: EvaluationTrace | None = None
 
 
 class ThreatAlert(Contract):
     """An immutable revision of a logical threat episode."""
 
-    schema_version: Literal["1.0", "1.1"] = "1.0"
+    schema_version: Literal["1.0", "1.1", "1.2"] = "1.0"
     alert_id: str
     revision: int = Field(ge=1)
     project_id: str
@@ -190,6 +206,7 @@ class ThreatAlert(Contract):
     detected_at: datetime = Field(default_factory=utcnow)
     context_incomplete: bool = False
     usage: ToolUsageEvidence | None = None
+    evaluation: EvaluationTrace | None = None
 
 
 class CloudEvent(Contract):

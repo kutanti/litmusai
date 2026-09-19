@@ -29,6 +29,7 @@ def create_app(
     *,
     store: Store | None = None,
     classifiers: dict[str, InjectionClassifier] | None = None,
+    reviewers: dict[str, InjectionClassifier] | None = None,
     publisher_factory: Callable[[Destination], AlertPublisher] = publisher_for,
     run_workers: bool = True,
 ) -> FastAPI:
@@ -48,7 +49,13 @@ def create_app(
         credentials.append((digest, project))
     database = store or Store(config.database)
     database.register_config(config)
-    engine = Engine(database, config, classifiers=classifiers, publisher_factory=publisher_factory)
+    engine = Engine(
+        database,
+        config,
+        classifiers=classifiers,
+        reviewers=reviewers,
+        publisher_factory=publisher_factory,
+    )
     redactors = {p.project_id: Redactor(p.policy) for p in config.projects}
     counters: dict[str, dict[str, int]] = {p.project_id: {} for p in config.projects}
 

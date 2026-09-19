@@ -292,6 +292,10 @@ Conversation tool-call limits are available through optional versioned
 [`usage_policies`](runtime-tool-usage.md). They count distinct requests in a rolling
 conversation window and emit events through the same destinations.
 
+Optional [conditional review](runtime-conditional-review.md) sends uncertain
+prompt-injection screens and a configured sample of clear screens to a deeper
+evaluator, with independent budgets, durable jobs, and evaluation telemetry.
+
 Framework callbacks, durable SDK spooling, streaming token inspection, general behavior
 anomaly detection, per-user authorization resolvers, dashboards, distributed workers,
 and guaranteed inline blocking remain outside this pilot.

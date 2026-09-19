@@ -84,6 +84,12 @@ CREATE TABLE IF NOT EXISTS delivery_attempts (
   delivery TEXT, attempt INTEGER, outcome TEXT, created REAL);
 CREATE TABLE IF NOT EXISTS budgets (
   project TEXT, minute INTEGER, calls INTEGER, PRIMARY KEY(project,minute));
+CREATE TABLE IF NOT EXISTS review_budgets (
+  project TEXT, minute INTEGER, calls INTEGER, PRIMARY KEY(project,minute));
+CREATE TABLE IF NOT EXISTS evaluation_metrics (
+  project TEXT, stage TEXT, decision TEXT, outcome TEXT, observations INTEGER,
+  provider_calls INTEGER, cost_samples INTEGER, reported_cost_usd REAL, elapsed_ms REAL,
+  PRIMARY KEY(project,stage,decision,outcome));
 CREATE TABLE IF NOT EXISTS metrics (
   project TEXT, name TEXT, value INTEGER, PRIMARY KEY(project,name));
 """
@@ -136,6 +142,17 @@ class Store:
             ("usage_policy", p.project_id, rule.policy_id, rule.version, rule.model_dump_json())
             for p in config.projects
             for rule in p.usage_policies
+        )
+        versions.extend(
+            (
+                "review",
+                p.project_id,
+                "prompt_injection",
+                p.review.version,
+                p.review.model_dump_json(),
+            )
+            for p in config.projects
+            if p.review is not None
         )
         versions.extend(
             (
@@ -265,15 +282,28 @@ class Store:
                 )
             return "accepted"
 
-    def claim_job(self, project: str, semantic: bool) -> dict[str, Any] | None:
+    def claim_job(
+        self,
+        project: str,
+        semantic: bool,
+        *,
+        review: bool = False,
+    ) -> dict[str, Any] | None:
         """Lease one job; expired leases are recovered without rewriting previous findings."""
         now = time.time()
+        lane = (
+            "detector='prompt_injection_review'"
+            if review
+            else "detector='prompt_injection'"
+            if semantic
+            else "detector NOT IN ('prompt_injection','prompt_injection_review')"
+        )
         with self._lock, self.db:
             row = self.db.execute(
-                "SELECT * FROM jobs WHERE project=? AND (detector='prompt_injection')=? "
+                "SELECT * FROM jobs WHERE project=? AND " + lane + " "
                 "AND (state='pending' OR (state='leased' AND lease_until<?)) "
                 "ORDER BY created,id LIMIT 1",
-                (project, int(semantic), now),
+                (project, now),
             ).fetchone()
             if row is None:
                 return None
@@ -318,21 +348,37 @@ class Store:
         )
         return context, incomplete
 
-    def use_budget(self, project: str, maximum: int) -> bool:
+    def use_budget(self, project: str, maximum: int, *, review: bool = False) -> bool:
         """Reserve a persisted per-project classifier call within a UTC minute."""
         minute = int(time.time() // 60)
+        table = "review_budgets" if review else "budgets"
         with self._lock, self.db:
             row = self.db.execute(
-                "SELECT calls FROM budgets WHERE project=? AND minute=?", (project, minute)
+                f"SELECT calls FROM {table} WHERE project=? AND minute=?", (project, minute)
             ).fetchone()
             if row and row[0] >= maximum:
                 return False
             self.db.execute(
-                "INSERT INTO budgets VALUES (?,?,1) ON CONFLICT(project,minute) "
+                f"INSERT INTO {table} VALUES (?,?,1) ON CONFLICT(project,minute) "
                 "DO UPDATE SET calls=calls+1",
                 (project, minute),
             )
         return True
+
+    def review_origin(self, project: str, event: str) -> str:
+        """Read the selection committed atomically with the pending review job."""
+        with self._lock:
+            row = self.db.execute(
+                "SELECT f.content FROM findings f JOIN jobs j ON f.job=j.id "
+                "WHERE j.project=? AND j.event=? AND j.detector='prompt_injection' LIMIT 1",
+                (project, event),
+            ).fetchone()
+        if row is None:
+            raise ValueError("review selection unavailable")
+        trace = DetectionResult.model_validate_json(row[0]).evaluation
+        if trace is None or trace.decision not in {"uncertain_screen", "audit_sample"}:
+            raise ValueError("event was not selected for review")
+        return trace.decision
 
     def tool_usage(self, captured: CapturedEvent, policy: ToolUsagePolicy) -> DetectionResult:
         """Evaluate a receipt-time window from durable, deduplicated request observations."""
@@ -462,6 +508,8 @@ class Store:
         captured: CapturedEvent,
         policy: ThreatPolicy | ToolUsagePolicy,
         destinations: list[Destination],
+        *,
+        follow_up: bool = False,
     ) -> bool:
         """Commit findings, alert revisions and matching destination outbox entries together."""
         now = time.time()
@@ -483,12 +531,50 @@ class Store:
                         job["project"],
                         job["id"],
                         finding.model_dump_json(
-                            exclude={"usage"} if finding.usage is None else None
+                            exclude={
+                                name
+                                for name in ("usage", "evaluation")
+                                if getattr(finding, name) is None
+                            },
                         ),
                         int(suppressed),
                         now,
                         finding.detector,
                         finding.outcome,
+                    ),
+                )
+                if finding.evaluation:
+                    trace = finding.evaluation
+                    self.db.execute(
+                        "INSERT INTO evaluation_metrics VALUES (?,?,?,?,?,?,?,?,?) "
+                        "ON CONFLICT(project,stage,decision,outcome) DO UPDATE SET "
+                        "observations=observations+1,provider_calls=provider_calls+excluded.provider_calls,"
+                        "cost_samples=cost_samples+excluded.cost_samples,"
+                        "reported_cost_usd=reported_cost_usd+excluded.reported_cost_usd,"
+                        "elapsed_ms=elapsed_ms+excluded.elapsed_ms",
+                        (
+                            job["project"],
+                            trace.stage,
+                            trace.decision,
+                            finding.outcome,
+                            1,
+                            int(trace.provider_called),
+                            int(trace.reported_cost_usd is not None),
+                            trace.reported_cost_usd or 0,
+                            trace.elapsed_ms,
+                        ),
+                    )
+            if follow_up:
+                self.db.execute(
+                    "INSERT INTO jobs (id,project,event,detector,config,created) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (
+                        new_id(),
+                        job["project"],
+                        job["event"],
+                        "prompt_injection_review",
+                        job["config"],
+                        job["created"],
                     ),
                 )
             self.db.execute(
@@ -546,7 +632,7 @@ class Store:
             )
         )[-50:]
         alert = ThreatAlert(
-            schema_version="1.1" if finding.usage else "1.0",
+            schema_version="1.2" if finding.evaluation else "1.1" if finding.usage else "1.0",
             alert_id=previous.alert_id if previous else new_id(),
             revision=previous.revision + 1 if previous else 1,
             project_id=event.project_id,
@@ -567,6 +653,7 @@ class Store:
             observed_at=event.observed_at,
             context_incomplete=finding.context_incomplete,
             usage=finding.usage,
+            evaluation=finding.evaluation,
         )
         envelope = CloudEvent(
             source=f"urn:litmusai:project:{quote(event.project_id, safe='')}",
@@ -582,7 +669,11 @@ class Store:
                 alert.alert_id,
                 episode,
                 alert.revision,
-                alert.model_dump_json(exclude={"usage"} if alert.usage is None else None),
+                alert.model_dump_json(
+                    exclude={
+                        name for name in ("usage", "evaluation") if getattr(alert, name) is None
+                    }
+                ),
                 now,
             ),
         )
@@ -594,7 +685,13 @@ class Store:
                 alert.alert_id,
                 alert.revision,
                 envelope.model_dump_json(
-                    exclude={"data": {"usage"}} if finding.usage is None else None,
+                    exclude={
+                        "data": {
+                            name
+                            for name in ("usage", "evaluation")
+                            if getattr(finding, name) is None
+                        }
+                    },
                 ),
                 now,
                 captured.received_at.timestamp(),
@@ -744,6 +841,14 @@ class Store:
     def status(self, project: str) -> dict[str, Any]:
         """Report project coverage, queue lag, capture gaps, and publication states."""
         with self._lock:
+            evaluations = [
+                dict(row)
+                for row in self.db.execute(
+                    "SELECT stage,decision,outcome,observations,provider_calls,cost_samples,"
+                    "reported_cost_usd,elapsed_ms FROM evaluation_metrics WHERE project=?",
+                    (project,),
+                )
+            ]
             jobs = {
                 r[0]: r[1]
                 for r in self.db.execute(
@@ -793,6 +898,7 @@ class Store:
                 )
             }
         return {
+            "evaluation_metrics": evaluations,
             "jobs": jobs,
             "detector_outcomes": outcomes,
             "destinations": destinations,
@@ -836,3 +942,6 @@ class Store:
             self.db.execute("DELETE FROM usage_gaps WHERE received<?", (cutoff,))
             self.db.execute("DELETE FROM producers WHERE updated<?", (cutoff,))
             self.db.execute("DELETE FROM budgets WHERE minute<?", (int(time.time() // 60) - 2,))
+            self.db.execute(
+                "DELETE FROM review_budgets WHERE minute<?", (int(time.time() // 60) - 2,)
+            )
