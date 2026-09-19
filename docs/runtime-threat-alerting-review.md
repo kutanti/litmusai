@@ -57,6 +57,8 @@ Environment: Windows build 26200, Python 3.11.4, 12 logical processors.
 - Azure contract checks used the real CloudEvent model and a mocked SDK client;
   they verified identity, retry configuration, and safe failure classification.
 - Example YAML validation and `git diff --check` passed.
+- PR #117 CI passed the disposable Apache Kafka publish-and-consume test using
+  Apache Kafka 3.9.1, plus the Python 3.10-3.12 Linux and Python 3.12 Windows checks.
 
 ## Repeatable local performance experiment
 
@@ -84,15 +86,11 @@ The generated detailed report is `.litmus/runtime-benchmark.json`.
 
 ## Remaining release gates
 
-- Run the disposable Apache Kafka CI workflow. Docker's daemon was unavailable locally;
-  only the protocol mock and publisher contract checks ran here.
 - Supply a test Azure topic/credential and confirm publication plus downstream subscriber
   receipt, authentication, throttling, and dead-letter behavior in that deployment.
 - Supply a test classifier project/credential and run the reviewed injection fixtures;
   measure semantic latency and customer-specific false positives/misses. No live model
   accuracy or calibrated confidence claim has been made.
-- Run the updated Python 3.10–3.12/Linux/Windows CI matrix after publishing the branch.
-  Local execution covered Windows/Python 3.11.
 
 The pilot provides alerting and client-owned response hooks. It does not provide
 pre-execution blocking, a durable client spool, general PII recognition, or distributed
