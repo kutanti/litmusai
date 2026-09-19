@@ -14,6 +14,7 @@ from rich.console import Console
 from rich.table import Table
 
 from litmusai import __version__
+from litmusai.cli.runtime import runtime
 
 console = Console()
 
@@ -967,6 +968,9 @@ def _load_agent(agent_path: str) -> Any:
         sys.exit(1)
 
     return agent
+
+
+cli.add_command(runtime)
 
 
 if __name__ == "__main__":

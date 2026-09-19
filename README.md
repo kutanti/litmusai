@@ -13,6 +13,9 @@ Start with a Python function and local assertions; connect a model or an existin
 
 [Quick start](#quick-start) · [Agent adapters](docs/adapters.md) · [Usage guide](docs/usage.md) · [Labeled metrics](docs/labeled-metrics.md) · [Feature validation](docs/feature-validation.md)
 
+The experimental [live threat monitor](docs/runtime-threat-alerting.md) connects to your
+running agent and publishes security alerts to Kafka, Azure Event Grid, and HTTPS webhooks.
+
 | What you need to check | What LitmusAI provides |
 |---|---|
 | Does the agent return the right answer? | Python and YAML suites, string/number/JSON assertions, semantic checks, and LLM grading |
