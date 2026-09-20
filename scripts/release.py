@@ -1,4 +1,4 @@
-"""Release only PR #115's CI-tested merge; never move an existing tag."""
+"""Release only the configured PR's CI-tested merge; never move an existing tag."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
+RELEASE_PR = 121
 TAG = f"v{VERSION}"
 
 
@@ -50,17 +51,17 @@ def release_notes(root: Path) -> str:
                 for target in node.targets)
     ]
     if package["project"]["version"] != VERSION or versions != [VERSION]:
-        raise ValueError("Package and runtime versions must both be 1.0.0")
+        raise ValueError(f"Package and runtime versions must both be {VERSION}")
 
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     sections = re.split(r"^## ", changelog, flags=re.MULTILINE)
     notes = [
         section.split("\n", 1)[1].strip()
         for section in sections[1:]
-        if re.match(r"\[1\.0\.0\] - \d{4}-\d{2}-\d{2}\n", section)
+        if re.match(rf"\[{re.escape(VERSION)}\] - \d{{4}}-\d{{2}}-\d{{2}}\n", section)
     ]
     if len(notes) != 1 or not notes[0]:
-        raise ValueError("Expected one nonempty, dated 1.0.0 changelog section")
+        raise ValueError(f"Expected one nonempty, dated {VERSION} changelog section")
     return notes[0]
 
 
@@ -98,10 +99,11 @@ def ensure_release(sha: str, notes: str) -> None:
 
 
 def main() -> None:
+    """Publish only when the checked-out SHA matches the designated merged PR."""
     sha = os.environ["RELEASE_SHA"]
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise ValueError("Expected a full tested commit SHA")
-    pr = api("pulls/115")
+    pr = api(f"pulls/{RELEASE_PR}")
     if not (
         pr
         and pr["merged"]
@@ -109,7 +111,7 @@ def main() -> None:
         and pr["base"]["repo"]["full_name"] == os.environ["GITHUB_REPOSITORY"]
         and pr["merge_commit_sha"] == sha
     ):
-        print("Not PR #115's merged main commit; no automatic release.")
+        print(f"Not PR #{RELEASE_PR}'s merged main commit; no automatic release.")
         return
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     if head != sha:

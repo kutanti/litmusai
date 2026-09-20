@@ -1,20 +1,17 @@
 # LitmusAI
 
-**AI agent evaluation for Python and CI.**
+**Test AI agents before deployment. Monitor them while they run.**
 
 [![CI](https://github.com/kutanti/litmusai/actions/workflows/ci.yml/badge.svg)](https://github.com/kutanti/litmusai/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/litmuseval)](https://pypi.org/project/litmuseval/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Turn tasks from your application into repeatable checks for your AI agent. LitmusAI measures answer quality, consistency across runs, latency, token usage, and estimated cost so you can evaluate a model, prompt, or workflow change before shipping it.
+Turn tasks from your application into repeatable checks for your AI agent. LitmusAI measures answer quality, consistency across runs, latency, token usage, and estimated cost so you can evaluate a model, prompt, or workflow change before shipping it. Its experimental runtime monitor observes live conversations and tool activity, evaluates configured policies, and emits risk events to your own systems.
 
 Start with a Python function and local assertions; connect a model or an existing agent when you're ready. The same suites run from Python, the command line, and GitHub Actions.
 
-[Quick start](#quick-start) · [Agent adapters](docs/adapters.md) · [Usage guide](docs/usage.md) · [Labeled metrics](docs/labeled-metrics.md) · [Feature validation](docs/feature-validation.md)
-
-The experimental [live threat monitor](docs/runtime-threat-alerting.md) connects to your
-running agent and publishes security alerts to Kafka, Azure Event Grid, and HTTPS webhooks.
+[Quick start](#quick-start) · [Runtime monitoring](#runtime-monitoring) · [Agent adapters](docs/adapters.md) · [Usage guide](docs/usage.md) · [Labeled metrics](docs/labeled-metrics.md) · [Feature validation](docs/feature-validation.md)
 
 | What you need to check | What LitmusAI provides |
 |---|---|
@@ -25,6 +22,9 @@ running agent and publishes security alerts to Kafka, Azure Event Grid, and HTTP
 | Can it follow a conversation? | History-aware conversations, assertions on each turn, and memory-poisoning probes |
 | What does it cost to run? | Token accounting, estimated cost, latency, and configurable score budgets |
 | Can it fit into your delivery workflow? | CLI gates, GitHub Actions, JSON/Markdown/HTML reports, JUnit XML, and CSV |
+| Is a running agent requesting a forbidden action? | Async capture, tool/destination allowlists, supported-secret exposure checks, and optional prompt-injection classification |
+| Is a conversation exceeding tool limits or violating a policy? | Conversation tool-call windows, versioned rubrics, evidence requirements, and optional deeper evaluation |
+| Can my application respond to a runtime finding? | CloudEvents through signed HTTPS webhooks, Kafka, or Azure Event Grid; your consumer decides the response |
 
 ## Installation
 
@@ -34,9 +34,9 @@ Requires Python 3.10 or newer. Install the `litmuseval` package and import it as
 pip install litmuseval
 ```
 
-For the 1.0.0 release, use `pip install --upgrade litmuseval==1.0.0`.
-See the [release notes and migration guidance](CHANGELOG.md#100---2026-09-17)
-for changes since the last tagged GitHub release, 0.4.0.
+For the 1.1.0 release, use `pip install --upgrade litmuseval==1.1.0`.
+See the [release notes and migration guidance](CHANGELOG.md#110---2026-09-19)
+for the new runtime features and upgrade guidance from 1.0.0.
 
 The package is **`litmuseval`**, the Python import is **`litmusai`**, and the command is **`litmus`**. Local assertions and HTTP/chat adapters work with the base installation. For full JSON Schema validation, also run `pip install jsonschema`. Framework integrations need their framework's dependencies; see [adapters](docs/adapters.md).
 
@@ -88,6 +88,99 @@ agent = Agent.from_openai_chat(
 ```
 
 Pass the API key explicitly to this adapter. See [agent adapters](docs/adapters.md) for functions, HTTP endpoints, CLI programs, and framework integrations.
+
+## Runtime monitoring
+
+A support agent passes its tests. During a live conversation, someone asks it to send customer records to an unapproved address. With the tool instrumented and a destination allowlist configured, LitmusAI detects the forbidden request and emits an event with the policy, conversation, and supporting evidence. Your system can alert an operator, escalate the conversation, or decide what the agent may do next.
+
+```text
+Customer <-> Your agent
+                 |
+          messages, context, tool activity
+                 |
+                 v
+         LitmusAI Runtime (async)
+         rules + conversation history
+         optional external evaluators
+                 |
+                 v
+          Risk event (CloudEvent)
+                 |
+         Webhook / Kafka / Event Grid
+                 |
+                 v
+          Your response handler
+```
+
+Capture uses a bounded background queue, and evaluation runs outside the agent's response path. LitmusAI reports events; it does not block tool execution or enforce a response. An alert about a requested action does not establish that the action completed or that data was exfiltrated.
+
+| Runtime feature | What you configure |
+|---|---|
+| [Threat detection](docs/runtime-threat-alerting.md) | Exact tool and destination allowlists, supported-secret patterns, and an optional Lakera or compatible HTTP prompt-injection classifier |
+| [Conversation tool limits](docs/runtime-tool-usage.md) | A maximum number of distinct tool requests per conversation and time window; for example, alert on the 21st request within 60 seconds when the limit is 20 |
+| [Two-stage evaluation](docs/runtime-conditional-review.md) | A first-stage injection classifier and an optional deeper HTTP evaluator for uncertain results, with separate workers and persistent call budgets |
+| [Conversation policies](docs/runtime-conversation-policies.md) | Versioned rubrics, scope, history requirements, severity, and optional score thresholds for sensitive-data requests, abuse, business-policy violations, suspicious patterns, out-of-scope replies, and responses unsupported by approved sources |
+| [Event delivery](docs/runtime-threat-alerting.md) | Signed HTTPS webhooks, Kafka, Azure Event Grid, or fan-out to all three; durable collector jobs, delivery retries, and replay |
+
+Semantic policies require a compatible, customer-selected evaluator. The policy framework does not bundle validated detectors for every category. Grounding checks assess support against configured source-tool results; they do not verify universal truth. Delivery can repeat, so consumers should deduplicate CloudEvents IDs.
+
+### Try the local demo
+
+Runtime monitoring is an **experimental, opt-in, single-instance pilot**, included starting with 1.1.0. Install the collector and optional transports from PyPI:
+
+```bash
+pip install --upgrade "litmuseval[runtime]==1.1.0"
+# Add transport dependencies when needed:
+pip install --upgrade "litmuseval[runtime,runtime-kafka,runtime-azure]==1.1.0"
+```
+
+The runnable demo also needs the example files from the repository. Check out the matching release:
+
+```bash
+git clone --branch v1.1.0 https://github.com/kutanti/litmusai.git
+cd litmusai
+pip install -e ".[runtime]"
+# Optional transport dependencies:
+pip install -e ".[runtime-kafka,runtime-azure]"
+```
+
+Set `LITMUS_RUNTIME_API_KEY` and `LITMUS_WEBHOOK_SECRET` to separate random secrets of at least 32 characters. Use the same values in each terminal. Then run these commands in separate terminals from the repository root:
+
+```bash
+python -m uvicorn examples.runtime.webhook_receiver:app --port 8766 --no-access-log
+litmus runtime serve --config examples/runtime/config.yaml
+python -m examples.runtime.agent
+```
+
+The demo email tool is simulated: it sends no mail. The webhook receiver prints the resulting alerts. Run `python -m examples.runtime.tool_usage` to exercise conversation tool limits. See the [runtime guide](docs/runtime-threat-alerting.md) for secrets, TLS, transport configuration, delivery behavior, and operating limits.
+
+### Connect your own agent
+
+Add capture hooks where your application receives messages, supplies retrieved context, runs tools, and returns responses. The following is an integration sketch inside your application's async request handler; replace the application variables and functions with your own:
+
+```python
+from litmusai.runtime import RuntimeClient
+
+async with RuntimeClient(
+    endpoint=collector_url, api_key=runtime_api_key, project_id="support"
+) as monitor:
+    async with monitor.session(agent_id="support-agent", session_id=request_id) as session:
+        session.emit_message(user_message)
+        session.emit_context(retrieved_document)
+        monitored_send_email = session.wrap_tool(
+            send_email, name="send_email", destination_argument="recipient"
+        )
+        # Register this wrapper as the tool your agent actually executes.
+        response = await run_existing_agent(
+            user_message, tools={"send_email": monitored_send_email}
+        )
+        session.emit_response(response, destination="customer-channel")
+        await monitor.aflush(timeout=5)
+```
+
+The SDK supports synchronous and asynchronous tools. Other languages can post events to the authenticated `/v1/events` endpoint. Instrumentation must capture the actual activity; the SDK cannot discover tools hidden inside an arbitrary agent endpoint. Flushing can wait, and a client crash can lose unacknowledged queued events. Inspect SDK health as well as collector coverage.
+
+Kafka delivery has been exercised against a real broker in CI. Live Azure downstream receipt, semantic evaluator quality, and production latency still need deployment-specific validation; see [the remaining runtime validation work](https://github.com/kutanti/litmusai/issues/116).
 
 ## YAML suites
 
@@ -329,7 +422,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: kutanti/litmusai@v1.0.0
+      - uses: kutanti/litmusai@v1.1.0
         id: evaluation
         with:
           suite: tests.yaml
@@ -369,6 +462,10 @@ Run `litmus --help` or `litmus <command> --help` for available options.
 | `scan` | Run heuristic safety checks |
 | `validate-ground-truth`, `ground-truth-stats` | Check answer files and label coverage |
 | `badges` | Print a pass-rate badge from `.litmus/baseline.json` |
+| `runtime serve` | Start the experimental runtime collector and workers from a config file |
+| `runtime validate` | Validate runtime policy and delivery configuration |
+| `runtime status` | Inspect project coverage, queue lag, delivery state, and latency |
+| `runtime alerts` | List the project's runtime alerts |
 
 `dashboard` and `create-test` are placeholders: the former prints report guidance; the latter only prints a message and does not save a test. Use HTML reports and edit YAML suites directly. The OpenAI Agents SDK adapter needs compatibility work; use a tested function wrapper as described in [adapters](docs/adapters.md#6-openai-agents-sdk-from_openai_agent).
 
