@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from email.utils import parsedate_to_datetime
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 from typing import Literal, Protocol
 
 import httpx
@@ -20,9 +22,13 @@ from litmusai.runtime.models import (
     Contract,
     DetectionResult,
     Message,
+    RiskScore,
     Stage,
     ToolActivity,
+    utcnow,
 )
+
+RESPONSE_LIMIT_BYTES = 16384
 
 
 def result(
@@ -153,15 +159,124 @@ def sensitive_data(captured: CapturedEvent, policy: ThreatPolicy) -> list[Detect
     ]
 
 
-class ClassifierVerdict(Contract):
-    """Minimal strict semantic response; severity remains an operator policy decision."""
+class VerdictBase(Contract):
+    """Fields shared by injection-classifier and conversation-policy verdicts."""
 
     outcome: Literal["detected", "clear", "insufficient_context", "needs_review"]
     reason: str = Field(min_length=1, max_length=1000)
     context_incomplete: bool = Field(default=False, strict=True)
     reported_cost_usd: float | None = Field(default=None, ge=0, strict=True)
+    estimated_cost_usd: float | None = Field(default=None, ge=0, strict=True)
     input_tokens: int | None = Field(default=None, ge=0, strict=True)
     output_tokens: int | None = Field(default=None, ge=0, strict=True)
+    detector_version: str | None = Field(
+        default=None, min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_.:+=/-]+$"
+    )
+
+
+class ClassifierVerdict(VerdictBase):
+    """Minimal strict semantic response; severity remains an operator policy decision.
+
+    ``reported_cost_usd`` is what the provider reported. ``estimated_cost_usd`` is
+    calculated by an adapter from token counts and an operator-configured price.
+    ``detector_version`` identifies the provider model and question wording; it is
+    appended to the configured classifier version.
+    """
+
+    risk_score: RiskScore | None = None
+
+
+def versioned(configured: str, provider: str | None) -> str:
+    """Append a provider-reported model and wording version to the configured version."""
+    return f"{configured}+{provider}" if provider else configured
+
+
+def check_risk_score(verdict: ClassifierVerdict) -> None:
+    """Reject a score that contradicts the outcome it accompanies."""
+    score = verdict.risk_score
+    if score is None or verdict.outcome == "insufficient_context":
+        return
+    if (score.value >= score.threshold) != (verdict.outcome == "detected"):
+        raise ValueError("classifier score contradicts its outcome")
+
+
+class ProviderRateLimitError(Exception):
+    """A provider refused or deferred a call for rate limiting.
+
+    The engine records a skipped finding with degraded coverage; it is never clear.
+    """
+
+    def __init__(
+        self, retry_after_seconds: float | None = None, *, provider_called: bool = True
+    ) -> None:
+        super().__init__("provider rate limited")
+        self.retry_after_seconds = retry_after_seconds
+        self.provider_called = provider_called
+
+
+def retry_after_seconds(value: str | None) -> float | None:
+    """Parse a Retry-After header given in seconds or as an HTTP date."""
+    if not value:
+        return None
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            seconds = (parsedate_to_datetime(value) - utcnow()).total_seconds()
+        except (TypeError, ValueError):
+            return None
+    return max(0.0, seconds) if seconds == seconds else None
+
+
+def new_client(*, max_connections: int = 10) -> httpx.AsyncClient:
+    """HTTP client without redirects, environment proxies, or stored cookies."""
+    return httpx.AsyncClient(
+        follow_redirects=False,
+        trust_env=False,
+        cookies=CookieJar(policy=DefaultCookiePolicy(allowed_domains=[])),
+        limits=httpx.Limits(
+            max_connections=max_connections, max_keepalive_connections=max_connections
+        ),
+    )
+
+
+async def post_json(
+    client: httpx.AsyncClient | None,
+    url: str,
+    body: dict[str, object],
+    *,
+    headers: dict[str, str],
+    timeout: float,
+    rate_limited_statuses: frozenset[int] = frozenset(),
+) -> bytes:
+    """POST once and return a bounded response body; there are no retries.
+
+    With ``client`` set, the shared pool is reused; otherwise a client is created
+    for this request. Statuses in ``rate_limited_statuses`` raise
+    :class:`ProviderRateLimitError`; every other non-2xx status raises.
+    """
+    if client is None:
+        async with new_client(max_connections=1) as owned:
+            return await post_json(
+                owned,
+                url,
+                body,
+                headers=headers,
+                timeout=timeout,
+                rate_limited_statuses=rate_limited_statuses,
+            )
+    async with client.stream("POST", url, json=body, headers=headers, timeout=timeout) as response:
+        if response.status_code in rate_limited_statuses:
+            raise ProviderRateLimitError(
+                retry_after_seconds(response.headers.get("retry-after"))
+            )
+        response.raise_for_status()
+        data = bytearray()
+        async for chunk in response.aiter_bytes(chunk_size=8192):
+            data.extend(chunk)
+            if len(data) > RESPONSE_LIMIT_BYTES:
+                raise ValueError("classifier response exceeds limit")
+    return bytes(data)
 
 
 class InjectionClassifier(Protocol):
@@ -184,8 +299,15 @@ class HTTPInjectionClassifier:
     classifier implementation whose detection quality has been evaluated.
     """
 
-    def __init__(self, config: ClassifierConfig) -> None:
+    def __init__(
+        self, config: ClassifierConfig, *, client: httpx.AsyncClient | None = None
+    ) -> None:
         self.config = config
+        self.client = client
+
+    def bind_client(self, client: httpx.AsyncClient | None) -> None:
+        """Use a shared pooled client; ``None`` restores a client per request."""
+        self.client = client
 
     async def classify(
         self,
@@ -229,24 +351,13 @@ class HTTPInjectionClassifier:
         )
 
     async def _request(self, body: dict[str, object]) -> bytes:
-        async with httpx.AsyncClient(
+        return await post_json(
+            self.client,
+            self.config.endpoint,
+            body,
+            headers={"Authorization": f"Bearer {secret(self.config.api_key_env)}"},
             timeout=self.config.timeout_seconds,
-            follow_redirects=False,
-            trust_env=False,
-        ) as client:
-            async with client.stream(
-                "POST",
-                self.config.endpoint,
-                json=body,
-                headers={"Authorization": f"Bearer {secret(self.config.api_key_env)}"},
-            ) as response:
-                response.raise_for_status()
-                data = bytearray()
-                async for chunk in response.aiter_bytes(chunk_size=8192):
-                    data.extend(chunk)
-                    if len(data) > 16384:
-                        raise ValueError("classifier response exceeds limit")
-        return bytes(data)
+        )
 
 
 class LakeraInjectionClassifier(HTTPInjectionClassifier):

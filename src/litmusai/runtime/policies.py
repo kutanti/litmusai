@@ -11,7 +11,13 @@ from typing import Annotated, Protocol
 from pydantic import Field
 
 from litmusai.runtime.config import ConversationPolicy
-from litmusai.runtime.detectors import ClassifierVerdict, HTTPInjectionClassifier, result
+from litmusai.runtime.detectors import (
+    HTTPInjectionClassifier,
+    ProviderRateLimitError,
+    VerdictBase,
+    result,
+    versioned,
+)
 from litmusai.runtime.models import (
     CapturedEvent,
     DetectionResult,
@@ -22,7 +28,7 @@ from litmusai.runtime.models import (
 )
 
 
-class PolicyVerdict(ClassifierVerdict):
+class PolicyVerdict(VerdictBase):
     """Positive decisions must cite supplied evidence including the current activity."""
 
     source_event_ids: list[Identifier] = Field(default_factory=list, max_length=50)
@@ -75,7 +81,9 @@ async def evaluate_policy(
             outcome=outcome,
             reason=reason,
             category=policy.category,
-            detector_version=policy.evaluator.version,
+            detector_version=versioned(
+                policy.evaluator.version, verdict.detector_version if verdict else None
+            ),
             evidence=evidence,
         ).model_copy(
             update={
@@ -88,6 +96,7 @@ async def evaluate_policy(
                     provider_called=called,
                     elapsed_ms=(time.perf_counter() - started) * 1000 if called else 0,
                     reported_cost_usd=verdict.reported_cost_usd if verdict else None,
+                    estimated_cost_usd=verdict.estimated_cost_usd if verdict else None,
                     input_tokens=verdict.input_tokens if verdict else None,
                     output_tokens=verdict.output_tokens if verdict else None,
                 ),
@@ -198,6 +207,9 @@ async def evaluate_policy(
         sources = list(dict.fromkeys(verdict.source_event_ids)) or sources
         evidence = verdict.evidence
         return finish(outcome, verdict.reason)
+    except ProviderRateLimitError as limited:
+        called, decision = limited.provider_called, "provider_rate_limited"
+        return finish("skipped", "conversation evaluator rate limited; coverage degraded")
     except Exception:
         return finish(
             "error", "conversation evaluator failed or returned invalid evidence; coverage degraded"

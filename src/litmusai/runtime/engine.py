@@ -22,9 +22,12 @@ from litmusai.runtime.detectors import (
     HTTPInjectionClassifier,
     InjectionClassifier,
     LakeraInjectionClassifier,
+    ProviderRateLimitError,
+    check_risk_score,
     result,
     sensitive_data,
     tool_policy,
+    versioned,
 )
 from litmusai.runtime.models import CapturedEvent, DetectionResult, EvaluationTrace
 from litmusai.runtime.policies import PolicyEvaluator, evaluate_policy
@@ -238,25 +241,32 @@ class Engine:
             called: bool = False,
         ) -> DetectionResult:
             trace = None
-            if project.review and project.classifier:
+            if project.classifier:
                 trace = EvaluationTrace(
                     stage="review" if review else "screen",
                     decision=self.store.review_origin(event.project_id, event.event_id)
                     if review
-                    else "pending_selection",
+                    else "pending_selection"
+                    if project.review
+                    else "review_not_configured",
                     screen_version=project.classifier.version,
-                    review_version=project.review.evaluator.version,
-                    gate_version=project.review.version,
+                    review_version=project.review.evaluator.version if project.review else None,
+                    gate_version=project.review.version if project.review else None,
                     provider_called=called,
                     elapsed_ms=(time.perf_counter() - started) * 1000 if called else 0,
                     reported_cost_usd=verdict.reported_cost_usd if verdict else None,
+                    estimated_cost_usd=verdict.estimated_cost_usd if verdict else None,
                     input_tokens=verdict.input_tokens if verdict else None,
                     output_tokens=verdict.output_tokens if verdict else None,
                 )
             return finding.model_copy(
                 update={
                     "detector": "prompt_injection_review" if review else "prompt_injection",
-                    "detector_version": settings.version if settings else "1",
+                    "detector_version": versioned(
+                        settings.version, verdict.detector_version if verdict else None
+                    )
+                    if settings
+                    else "1",
                     "evaluation": trace,
                 }
             )
@@ -298,11 +308,15 @@ class Engine:
             else HTTPInjectionClassifier(settings)
         )
         verdict = None
+        called = True
         try:
             verdict = await asyncio.wait_for(
                 classifier.classify(captured, context, incomplete),
                 timeout=settings.timeout_seconds,
             )
+            # Revalidate injected adapters; a score must agree with its outcome.
+            verdict = ClassifierVerdict.model_validate(verdict.model_dump())
+            check_risk_score(verdict)
             outcome = verdict.outcome
             incomplete = incomplete or verdict.context_incomplete
             # A negative verdict on incomplete context cannot certify the entire interaction.
@@ -318,6 +332,16 @@ class Engine:
                 category="prompt_injection",
                 reason=verdict.reason,
                 evidence=["classifier examined captured untrusted content"],
+                risk_score=verdict.risk_score,
+            )
+        except ProviderRateLimitError as limited:
+            called = limited.provider_called
+            finding = result(
+                captured,
+                project.policy,
+                "prompt_injection",
+                outcome="skipped",
+                reason="classifier provider rate limited; coverage degraded",
             )
         except Exception:
             finding = result(
@@ -331,7 +355,7 @@ class Engine:
         return finish(
             finding.model_copy(update={"context_incomplete": incomplete}),
             verdict,
-            called=True,
+            called=called,
         )
 
     async def _deliveries(self, destination: str) -> None:
