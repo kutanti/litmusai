@@ -8,6 +8,8 @@ import random
 import time
 from collections.abc import Callable
 
+import httpx
+
 from litmusai.runtime.config import (
     DESTINATION_ADAPTER,
     ConversationPolicy,
@@ -22,9 +24,13 @@ from litmusai.runtime.detectors import (
     HTTPInjectionClassifier,
     InjectionClassifier,
     LakeraInjectionClassifier,
+    ProviderRateLimitError,
+    check_risk_score,
+    new_client,
     result,
     sensitive_data,
     tool_policy,
+    versioned,
 )
 from litmusai.runtime.models import CapturedEvent, DetectionResult, EvaluationTrace
 from litmusai.runtime.policies import PolicyEvaluator, evaluate_policy
@@ -58,21 +64,49 @@ class Engine:
         self.last_worker_error: str | None = None
         self.worker_errors: dict[str, str] = {}
         self.last_cleanup: float | None = None
+        self.http_client: httpx.AsyncClient | None = None
+
+    def _adapters(self) -> list[object]:
+        return [
+            *self.classifiers.values(),
+            *self.reviewers.values(),
+            *self.policy_evaluators.values(),
+        ]
 
     async def start(self) -> None:
-        """Start independent workers so slow providers and destinations cannot block local rules."""
+        """Start independent workers so slow providers and destinations cannot block local rules.
+
+        Each provider lane (screen, review, policies) runs ``provider_concurrency``
+        workers per project. Provider adapters share one pooled HTTP client; injected
+        adapters that define ``bind_client`` receive it.
+        """
         if self.tasks:
             raise RuntimeError("engine is already running")
         self.store.register_config(self.config)
+        workers = self.config.provider_concurrency
+        self.http_client = new_client(
+            max_connections=max(10, workers * 3 * len(self.config.projects))
+        )
+        for adapter in self._adapters():
+            bind = getattr(adapter, "bind_client", None)
+            if callable(bind):
+                bind(self.http_client)
         for project in self.config.projects:
-            for semantic in (False, True):
-                self.tasks.append(asyncio.create_task(self._jobs(project.project_id, semantic)))
-            self.tasks.append(
-                asyncio.create_task(self._jobs(project.project_id, True, review=True))
-            )
-            self.tasks.append(
-                asyncio.create_task(self._jobs(project.project_id, True, policies=True))
-            )
+            self.tasks.append(asyncio.create_task(self._jobs(project.project_id, False)))
+            for worker in range(workers):
+                self.tasks.append(
+                    asyncio.create_task(self._jobs(project.project_id, True, worker=worker))
+                )
+                self.tasks.append(
+                    asyncio.create_task(
+                        self._jobs(project.project_id, True, review=True, worker=worker)
+                    )
+                )
+                self.tasks.append(
+                    asyncio.create_task(
+                        self._jobs(project.project_id, True, policies=True, worker=worker)
+                    )
+                )
         destinations = set(self.store.destination_ids()) | {
             d.destination_id for d in self.config.destinations
         }
@@ -86,6 +120,13 @@ class Engine:
             task.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
         self.tasks.clear()
+        if self.http_client is not None:
+            for adapter in self._adapters():
+                bind = getattr(adapter, "bind_client", None)
+                if callable(bind):
+                    bind(None)
+            await self.http_client.aclose()
+            self.http_client = None
 
     async def _jobs(
         self,
@@ -94,8 +135,11 @@ class Engine:
         *,
         review: bool = False,
         policies: bool = False,
+        worker: int = 0,
     ) -> None:
         worker_id = f"jobs:{project}:{'policies' if policies else 'review' if review else semantic}"
+        if worker:
+            worker_id += f"#{worker + 1}"
         while True:
             try:
                 if await self.process_one(project, semantic, review=review, policies=policies):
@@ -217,6 +261,7 @@ class Engine:
                 project.project_id, policy.policy_id, policy.evaluator.calls_per_minute
             ),
             self.policy_evaluators.get((project.project_id, policy.policy_id)),
+            client=self.http_client,
         )
 
     async def _classify(
@@ -238,25 +283,32 @@ class Engine:
             called: bool = False,
         ) -> DetectionResult:
             trace = None
-            if project.review and project.classifier:
+            if project.classifier:
                 trace = EvaluationTrace(
                     stage="review" if review else "screen",
                     decision=self.store.review_origin(event.project_id, event.event_id)
                     if review
-                    else "pending_selection",
+                    else "pending_selection"
+                    if project.review
+                    else "review_not_configured",
                     screen_version=project.classifier.version,
-                    review_version=project.review.evaluator.version,
-                    gate_version=project.review.version,
+                    review_version=project.review.evaluator.version if project.review else None,
+                    gate_version=project.review.version if project.review else None,
                     provider_called=called,
                     elapsed_ms=(time.perf_counter() - started) * 1000 if called else 0,
                     reported_cost_usd=verdict.reported_cost_usd if verdict else None,
+                    estimated_cost_usd=verdict.estimated_cost_usd if verdict else None,
                     input_tokens=verdict.input_tokens if verdict else None,
                     output_tokens=verdict.output_tokens if verdict else None,
                 )
             return finding.model_copy(
                 update={
                     "detector": "prompt_injection_review" if review else "prompt_injection",
-                    "detector_version": settings.version if settings else "1",
+                    "detector_version": versioned(
+                        settings.version, verdict.detector_version if verdict else None
+                    )
+                    if settings
+                    else "1",
                     "evaluation": trace,
                 }
             )
@@ -293,16 +345,20 @@ class Engine:
         ]
         adapters = self.reviewers if review else self.classifiers
         classifier = adapters.get(project.project_id) or (
-            LakeraInjectionClassifier(settings)
+            LakeraInjectionClassifier(settings, client=self.http_client)
             if settings.provider == "lakera"
-            else HTTPInjectionClassifier(settings)
+            else HTTPInjectionClassifier(settings, client=self.http_client)
         )
         verdict = None
+        called = True
         try:
             verdict = await asyncio.wait_for(
                 classifier.classify(captured, context, incomplete),
                 timeout=settings.timeout_seconds,
             )
+            # Revalidate injected adapters; a score must agree with its outcome.
+            verdict = ClassifierVerdict.model_validate(verdict.model_dump())
+            check_risk_score(verdict)
             outcome = verdict.outcome
             incomplete = incomplete or verdict.context_incomplete
             # A negative verdict on incomplete context cannot certify the entire interaction.
@@ -318,6 +374,16 @@ class Engine:
                 category="prompt_injection",
                 reason=verdict.reason,
                 evidence=["classifier examined captured untrusted content"],
+                risk_score=verdict.risk_score,
+            )
+        except ProviderRateLimitError as limited:
+            called = limited.provider_called
+            finding = result(
+                captured,
+                project.policy,
+                "prompt_injection",
+                outcome="skipped",
+                reason="classifier provider rate limited; coverage degraded",
             )
         except Exception:
             finding = result(
@@ -331,7 +397,7 @@ class Engine:
         return finish(
             finding.model_copy(update={"context_incomplete": incomplete}),
             verdict,
-            called=True,
+            called=called,
         )
 
     async def _deliveries(self, destination: str) -> None:

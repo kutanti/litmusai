@@ -153,16 +153,22 @@ class ToolUsageEvidence(Contract):
 
 
 class EvaluationTrace(Contract):
-    """Selection and measured provider telemetry; absent cost is not zero cost."""
+    """Selection and measured provider telemetry; absent cost is not zero cost.
+
+    Screen-only projects record ``decision="review_not_configured"`` without review
+    or gate versions. ``estimated_cost_usd`` is calculated from tokens and a configured
+    price; it is kept apart from ``reported_cost_usd`` and is not a provider bill.
+    """
 
     stage: Literal["screen", "review"]
     decision: str
     screen_version: str
-    review_version: str
-    gate_version: str
+    review_version: str | None = None
+    gate_version: str | None = None
     provider_called: bool = False
     elapsed_ms: float = Field(default=0, ge=0)
     reported_cost_usd: float | None = Field(default=None, ge=0, strict=True)
+    estimated_cost_usd: float | None = Field(default=None, ge=0, strict=True)
     input_tokens: int | None = Field(default=None, ge=0, strict=True)
     output_tokens: int | None = Field(default=None, ge=0, strict=True)
 
@@ -176,6 +182,7 @@ class PolicyEvaluationTrace(Contract):
     provider_called: bool = False
     elapsed_ms: float = Field(default=0, ge=0)
     reported_cost_usd: float | None = Field(default=None, ge=0, strict=True)
+    estimated_cost_usd: float | None = Field(default=None, ge=0, strict=True)
     input_tokens: int | None = Field(default=None, ge=0, strict=True)
     output_tokens: int | None = Field(default=None, ge=0, strict=True)
 
@@ -216,7 +223,7 @@ class DetectionResult(Contract):
 class ThreatAlert(Contract):
     """An immutable revision of a logical threat episode."""
 
-    schema_version: Literal["1.0", "1.1", "1.2", "1.3"] = "1.0"
+    schema_version: Literal["1.0", "1.1", "1.2", "1.3", "1.4"] = "1.0"
     alert_id: str
     revision: int = Field(ge=1)
     project_id: str
