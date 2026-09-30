@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from email.utils import parsedate_to_datetime
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 from typing import Literal, Protocol
@@ -228,6 +229,19 @@ def retry_after_seconds(value: str | None) -> float | None:
     return max(0.0, seconds) if seconds == seconds else None
 
 
+def retry_after(headers: httpx.Headers) -> float | None:
+    """Prefer ``retry-after-ms`` (sent by TypeSafe) over the standard ``Retry-After``."""
+    raw = headers.get("retry-after-ms")
+    if raw:
+        try:
+            milliseconds = float(raw)
+        except ValueError:
+            milliseconds = math.nan
+        if math.isfinite(milliseconds) and milliseconds >= 0:
+            return milliseconds / 1000
+    return retry_after_seconds(headers.get("retry-after"))
+
+
 def new_client(*, max_connections: int = 10) -> httpx.AsyncClient:
     """HTTP client without redirects, environment proxies, or stored cookies."""
     return httpx.AsyncClient(
@@ -267,9 +281,7 @@ async def post_json(
             )
     async with client.stream("POST", url, json=body, headers=headers, timeout=timeout) as response:
         if response.status_code in rate_limited_statuses:
-            raise ProviderRateLimitError(
-                retry_after_seconds(response.headers.get("retry-after"))
-            )
+            raise ProviderRateLimitError(retry_after(response.headers))
         response.raise_for_status()
         data = bytearray()
         async for chunk in response.aiter_bytes(chunk_size=8192):
