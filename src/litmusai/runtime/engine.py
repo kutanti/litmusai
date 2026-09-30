@@ -8,6 +8,8 @@ import random
 import time
 from collections.abc import Callable
 
+import httpx
+
 from litmusai.runtime.config import (
     DESTINATION_ADAPTER,
     ConversationPolicy,
@@ -24,6 +26,7 @@ from litmusai.runtime.detectors import (
     LakeraInjectionClassifier,
     ProviderRateLimitError,
     check_risk_score,
+    new_client,
     result,
     sensitive_data,
     tool_policy,
@@ -61,21 +64,49 @@ class Engine:
         self.last_worker_error: str | None = None
         self.worker_errors: dict[str, str] = {}
         self.last_cleanup: float | None = None
+        self.http_client: httpx.AsyncClient | None = None
+
+    def _adapters(self) -> list[object]:
+        return [
+            *self.classifiers.values(),
+            *self.reviewers.values(),
+            *self.policy_evaluators.values(),
+        ]
 
     async def start(self) -> None:
-        """Start independent workers so slow providers and destinations cannot block local rules."""
+        """Start independent workers so slow providers and destinations cannot block local rules.
+
+        Each provider lane (screen, review, policies) runs ``provider_concurrency``
+        workers per project. Provider adapters share one pooled HTTP client; injected
+        adapters that define ``bind_client`` receive it.
+        """
         if self.tasks:
             raise RuntimeError("engine is already running")
         self.store.register_config(self.config)
+        workers = self.config.provider_concurrency
+        self.http_client = new_client(
+            max_connections=max(10, workers * 3 * len(self.config.projects))
+        )
+        for adapter in self._adapters():
+            bind = getattr(adapter, "bind_client", None)
+            if callable(bind):
+                bind(self.http_client)
         for project in self.config.projects:
-            for semantic in (False, True):
-                self.tasks.append(asyncio.create_task(self._jobs(project.project_id, semantic)))
-            self.tasks.append(
-                asyncio.create_task(self._jobs(project.project_id, True, review=True))
-            )
-            self.tasks.append(
-                asyncio.create_task(self._jobs(project.project_id, True, policies=True))
-            )
+            self.tasks.append(asyncio.create_task(self._jobs(project.project_id, False)))
+            for worker in range(workers):
+                self.tasks.append(
+                    asyncio.create_task(self._jobs(project.project_id, True, worker=worker))
+                )
+                self.tasks.append(
+                    asyncio.create_task(
+                        self._jobs(project.project_id, True, review=True, worker=worker)
+                    )
+                )
+                self.tasks.append(
+                    asyncio.create_task(
+                        self._jobs(project.project_id, True, policies=True, worker=worker)
+                    )
+                )
         destinations = set(self.store.destination_ids()) | {
             d.destination_id for d in self.config.destinations
         }
@@ -89,6 +120,13 @@ class Engine:
             task.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
         self.tasks.clear()
+        if self.http_client is not None:
+            for adapter in self._adapters():
+                bind = getattr(adapter, "bind_client", None)
+                if callable(bind):
+                    bind(None)
+            await self.http_client.aclose()
+            self.http_client = None
 
     async def _jobs(
         self,
@@ -97,8 +135,11 @@ class Engine:
         *,
         review: bool = False,
         policies: bool = False,
+        worker: int = 0,
     ) -> None:
         worker_id = f"jobs:{project}:{'policies' if policies else 'review' if review else semantic}"
+        if worker:
+            worker_id += f"#{worker + 1}"
         while True:
             try:
                 if await self.process_one(project, semantic, review=review, policies=policies):
@@ -220,6 +261,7 @@ class Engine:
                 project.project_id, policy.policy_id, policy.evaluator.calls_per_minute
             ),
             self.policy_evaluators.get((project.project_id, policy.policy_id)),
+            client=self.http_client,
         )
 
     async def _classify(
@@ -303,9 +345,9 @@ class Engine:
         ]
         adapters = self.reviewers if review else self.classifiers
         classifier = adapters.get(project.project_id) or (
-            LakeraInjectionClassifier(settings)
+            LakeraInjectionClassifier(settings, client=self.http_client)
             if settings.provider == "lakera"
-            else HTTPInjectionClassifier(settings)
+            else HTTPInjectionClassifier(settings, client=self.http_client)
         )
         verdict = None
         called = True

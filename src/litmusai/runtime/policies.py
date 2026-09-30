@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable
 from typing import Annotated, Protocol
 
+import httpx
 from pydantic import Field
 
 from litmusai.runtime.config import ConversationPolicy
@@ -62,6 +63,8 @@ async def evaluate_policy(
     policy: ConversationPolicy,
     reserve_budget: Callable[[], bool],
     evaluator: PolicyEvaluator | None = None,
+    *,
+    client: httpx.AsyncClient | None = None,
 ) -> DetectionResult:
     """Apply prerequisites and thresholds without treating missing evidence as a pass."""
     event = captured.event
@@ -172,7 +175,7 @@ async def evaluate_policy(
     }
     try:
         called = True
-        adapter = evaluator or HTTPPolicyEvaluator(policy.evaluator)
+        adapter = evaluator or HTTPPolicyEvaluator(policy.evaluator, client=client)
         verdict = await asyncio.wait_for(
             adapter.evaluate(body), timeout=policy.evaluator.timeout_seconds
         )

@@ -310,6 +310,7 @@ class RuntimeConfig(Contract):
     batch_size: int = Field(default=50, ge=1, le=100)
     retention_days: int = Field(default=7, ge=1, le=365)
     poll_seconds: float = Field(default=0.05, ge=0.01, le=5)
+    provider_concurrency: int = Field(default=1, ge=1, le=16)
 
     @model_validator(mode="after")
     def references_valid(self) -> RuntimeConfig:
