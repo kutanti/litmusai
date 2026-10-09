@@ -239,10 +239,18 @@ class EvaluationStoppedError(Exception):
 
 
 def unwrap_failure(error: Exception) -> tuple[Exception, ProviderUsage | None]:
-    """Return the failure that decides the outcome and the usage completed before it."""
-    if isinstance(error, EvaluationStoppedError):
-        return error.failure, error.usage
-    return error, None
+    """Return the failure that decides the outcome and the usage completed before it.
+
+    Usage from an injected adapter is revalidated; invalid usage is recorded as not
+    reported, while the evaluation still counts as having called the provider.
+    """
+    if not isinstance(error, EvaluationStoppedError):
+        return error, None
+    try:
+        usage = ProviderUsage.model_validate(error.usage.model_dump())
+    except Exception:
+        usage = ProviderUsage()
+    return error.failure, usage
 
 
 def retry_after_seconds(value: str | None) -> float | None:

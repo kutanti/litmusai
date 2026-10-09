@@ -180,11 +180,11 @@ async def evaluate_policy(
     try:
         called = True
         adapter = evaluator or HTTPPolicyEvaluator(policy.evaluator, client=client)
-        verdict = await asyncio.wait_for(
+        returned = await asyncio.wait_for(
             adapter.evaluate(body), timeout=policy.evaluator.timeout_seconds
         )
         # Revalidate injected adapters as well as the HTTP response.
-        verdict = PolicyVerdict.model_validate(verdict.model_dump())
+        verdict = PolicyVerdict.model_validate(returned.model_dump())
         incomplete = incomplete or verdict.context_incomplete
         outcome = verdict.outcome
         if outcome == "needs_review":

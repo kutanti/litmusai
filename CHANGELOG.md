@@ -10,7 +10,7 @@ All notable changes to LitmusAI will be documented in this file.
 - Classifier verdicts can include an optional `risk_score`, a `detector_version`, and an `estimated_cost_usd` calculated from operator-supplied prices. Status reports `estimate_samples` and `estimated_cost_usd` separately from reported cost.
 - A top-level `provider_concurrency` setting (default 1, maximum 16) sets the number of workers per project in each provider lane: screening, review, and conversation policies. Provider adapters share one pooled HTTP client.
 - Experimental System One adapters in `litmusai.runtime.system_one` for Jev, the Vercel AI Gateway, and self-hosted Laya. They are injected in code with `create_app(classifiers=...)` or `create_app(policy_evaluators=...)`, are not a configuration provider, and have not been run against a live provider.
-- `EvaluationStoppedError` and `ProviderUsage` in `litmusai.runtime.detectors`. An adapter that fails after some provider calls completed raises the error with their usage; the finding keeps the outcome of the underlying failure, and its trace keeps the tokens and cost. The System One adapters use it. A timeout still discards the usage.
+- `EvaluationStoppedError` and `ProviderUsage` in `litmusai.runtime.detectors`. An adapter that fails after some provider calls completed raises the error with their usage; the finding keeps the outcome of the underlying failure, and its trace keeps the tokens and cost. The engine revalidates that usage and records invalid usage as not reported. The System One adapters use it. A timeout still discards the usage.
 - `scripts/benchmark_runtime.py` options `--classifier-latency-ms` and `--provider-concurrency`, with screening queue delay in the report.
 
 ### Changed

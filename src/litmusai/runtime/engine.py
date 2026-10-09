@@ -357,12 +357,12 @@ class Engine:
         usage: ProviderUsage | None = None
         called = True
         try:
-            verdict = await asyncio.wait_for(
+            returned = await asyncio.wait_for(
                 classifier.classify(captured, context, incomplete),
                 timeout=settings.timeout_seconds,
             )
             # Revalidate injected adapters; a score must agree with its outcome.
-            verdict = ClassifierVerdict.model_validate(verdict.model_dump())
+            verdict = ClassifierVerdict.model_validate(returned.model_dump())
             check_risk_score(verdict)
             outcome = verdict.outcome
             incomplete = incomplete or verdict.context_incomplete

@@ -187,6 +187,43 @@ async def test_stopped_evaluation_keeps_the_usage_of_completed_calls(
     assert finding["evaluation"]["estimated_cost_usd"] == 0.00001
 
 
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"detector_version": "model 1\nforged"},
+        {"input_tokens": -5},
+        {"estimated_cost_usd": -0.1},
+    ],
+    ids=["version", "tokens", "cost"],
+)
+async def test_rejected_verdict_supplies_no_version_or_usage(config, store, make_event, fields):
+    config = screen_only(config)
+    store.register_config(config)
+    accept(store, config, make_event)
+    verdict = ClassifierVerdict.model_construct(outcome="clear", reason="synthetic", **fields)
+    await run(store, config, Screen(verdict))
+    finding = injection_findings(store)[0]
+    assert finding["outcome"] == "error"
+    assert finding["reason"] == "classifier failed; coverage degraded"
+    assert finding["detector_version"] == "screen-v1"
+    assert finding["evaluation"]["provider_called"] is True
+    assert finding["evaluation"]["input_tokens"] is None
+    assert "estimated_cost_usd" not in finding["evaluation"]
+
+
+async def test_stopped_evaluation_with_invalid_usage_records_no_usage(config, store, make_event):
+    config = screen_only(config)
+    store.register_config(config)
+    accept(store, config, make_event)
+    usage = ProviderUsage.model_construct(input_tokens=-5, output_tokens=0)
+    await run(store, config, Screen(error=EvaluationStoppedError(ValueError(), usage)))
+    finding = injection_findings(store)[0]
+    assert finding["outcome"] == "error"
+    assert finding["reason"] == "classifier failed; coverage degraded"
+    assert finding["evaluation"]["provider_called"] is True
+    assert finding["evaluation"]["input_tokens"] is None
+
+
 async def test_stopped_policy_evaluation_keeps_the_usage_of_completed_calls(
     config, store, make_event
 ):
@@ -228,6 +265,49 @@ async def test_stopped_policy_evaluation_keeps_the_usage_of_completed_calls(
     assert finding["evaluation"]["provider_called"] is True
     assert finding["evaluation"]["input_tokens"] == 7
     assert finding["evaluation"]["output_tokens"] == 1
+
+
+async def test_rejected_policy_verdict_supplies_no_version_or_usage(config, store, make_event):
+    rule = ConversationPolicy(
+        policy_id="abuse",
+        version="1",
+        category="abuse",
+        rubric="Flag abusive user messages.",
+        evaluator=ClassifierConfig(
+            endpoint="https://policy.example/evaluate",
+            api_key_env="POLICY_KEY",
+            version="policy-v1",
+        ),
+        event_types=["message.received"],
+    )
+    project = config.projects[0].model_copy(update={"conversation_policies": [rule]})
+    config = config.model_copy(update={"projects": [project]})
+    store.register_config(config)
+
+    class Invalid:
+        async def evaluate(self, body):
+            return PolicyVerdict.model_construct(
+                outcome="clear",
+                reason="synthetic",
+                input_tokens=-5,
+                detector_version="model 1\nforged",
+            )
+
+    captured = accept(store, config, make_event)
+    engine = Engine(store, config, policy_evaluators={("p", "abuse"): Invalid()})
+    while await engine.process_one("p", True, policies=True):
+        pass
+    finding = next(
+        r["finding"]
+        for r in store.findings("p")
+        if r["finding"]["event_id"] == captured.event.event_id
+        and r["finding"]["detector"] == "conversation_policy:abuse"
+    )
+    assert finding["outcome"] == "error"
+    assert finding["reason"].startswith("conversation evaluator failed")
+    assert finding["detector_version"] == "policy-v1"
+    assert finding["evaluation"]["provider_called"] is True
+    assert finding["evaluation"]["input_tokens"] is None
 
 
 async def test_policy_rate_limit_estimate_and_version(config, store, make_event):

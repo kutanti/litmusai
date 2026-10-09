@@ -223,7 +223,10 @@ adapters do not raise it, so a rate-limited response from them is an `error`. An
 adapter that makes several provider calls for one event and fails after some of them
 completed can raise `EvaluationStoppedError(failure, usage)`, where `usage` is a
 `ProviderUsage` with the tokens and cost of the completed calls. The outcome follows
-`failure`, and the evaluation trace records `usage`.
+`failure`, and the evaluation trace records `usage`. Verdicts and usage from injected
+adapters are revalidated. A verdict that fails validation makes the finding an
+`error`, and none of its fields are recorded; usage that fails validation is recorded
+as not reported.
 
 Default semantic limits are 8 context events, 16,000 content characters, a 2-second
 timeout, and 60 calls per UTC minute. The top-level `provider_concurrency` setting
