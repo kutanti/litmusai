@@ -62,8 +62,8 @@ retains its configuration, so pending evaluation is unaffected by later changes.
 
 The existing CloudEvents envelope and delivery/replay behavior are retained. Usage
 alerts use category `excessive_tool_usage` and `data.schema_version: "1.1"`. Upgrade
-strict consumers to this runtime contract before enabling these policies. Existing
-threat alerts retain data version `1.0` and their existing fields.
+strict consumers to this runtime contract before enabling these policies. Enabling
+them does not change the data version or fields of other alerts.
 
 ```json
 {

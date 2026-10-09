@@ -4,6 +4,25 @@ All notable changes to LitmusAI will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `litmusai.metrics.probability` for detectors that return a probability: threshold sweeps, recall at a fixed false-alarm rate with a Wilson interval, ROC AUC, Brier score, expected calibration error, bootstrap intervals, latency percentiles, cost per 1,000 events, and temperature fitting. A missing score is reported as lost coverage, never counted as 0.
+- Classifier verdicts can include an optional `risk_score`, a `detector_version`, and an `estimated_cost_usd` calculated from operator-supplied prices. Status reports `estimate_samples` and `estimated_cost_usd` separately from reported cost.
+- A top-level `provider_concurrency` setting (default 1, maximum 16) sets the number of workers per project in each provider lane: screening, review, and conversation policies. Provider adapters share one pooled HTTP client.
+- Experimental System One adapters in `litmusai.runtime.system_one` for Jev, the Vercel AI Gateway, and self-hosted Laya. They are injected in code with `create_app(classifiers=...)` or `create_app(policy_evaluators=...)`, are not a configuration provider, and have not been run against a live provider.
+- `EvaluationStoppedError` and `ProviderUsage` in `litmusai.runtime.detectors`. An adapter that fails after some provider calls completed raises the error with their usage; the finding keeps the outcome of the underlying failure, and its trace keeps the tokens and cost. The engine revalidates that usage and records invalid usage as not reported. The System One adapters use it. A timeout still discards the usage.
+- `scripts/benchmark_runtime.py` options `--classifier-latency-ms` and `--provider-concurrency`, with screening queue delay in the report.
+
+### Changed
+
+- Prompt-injection findings from projects with a classifier and no conditional review carry an evaluation trace with decision `review_not_configured`.
+- An injected adapter that raises `ProviderRateLimitError` produces a `skipped` finding instead of an `error`. The built-in `http` and `lakera` adapters still report a rate-limited response as an `error`.
+
+### Migration notes
+
+- Alerts use data schema 1.4 when they carry a screen-only evaluation trace, an `evaluation.estimated_cost_usd`, or a classifier `risk_score`. Projects with a classifier and no review emit 1.4 prompt-injection alerts after the upgrade without a configuration change, so update strict consumers first. Other alerts keep versions 1.0 to 1.3 and their payloads. See [telemetry and event compatibility](docs/runtime-conditional-review.md#telemetry-and-event-compatibility).
+- With the default `provider_concurrency: 1`, scheduling is unchanged.
+
 ## [1.1.0] - 2026-09-19
 
 This release adds experimental monitoring for live agent conversations and tool

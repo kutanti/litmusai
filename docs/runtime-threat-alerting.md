@@ -197,11 +197,44 @@ payload string in `content`. Return
 `clear` and `insufficient_context` are also valid outcomes. Response size is limited
 to 16 KiB. All captured content is untrusted; it cannot change operator policy.
 
+A response may also include these optional fields:
+
+- `risk_score`: an object with `value` and `threshold`, both between 0 and 1, plus
+  `semantics` and `version` strings. A value at or above the threshold must come with
+  `detected`, and a value below it with `clear` or `needs_review`; a score that
+  contradicts the outcome makes the finding an `error`. `insufficient_context` may
+  carry any score. The value is not inherently a probability; `semantics` states what
+  it means.
+- `detector_version`: the provider model or prompt version, up to 200 characters from
+  letters, digits, and `_.:+=/-`. It is appended to the configured version, as in
+  `screen-v1+model-1`.
+- `input_tokens`, `output_tokens`, `reported_cost_usd`, and `estimated_cost_usd`.
+  Reported cost comes from the provider. Estimated cost is calculated by an adapter
+  from token counts and an operator-supplied price, and is stored separately.
+
+Prompt-injection alerts use data schema 1.4 when they include a `risk_score` or an
+estimated cost, or come from a project without conditional review; see
+[telemetry and event compatibility](runtime-conditional-review.md#telemetry-and-event-compatibility).
+
+An injected adapter can raise `ProviderRateLimitError` from
+`litmusai.runtime.detectors` when the provider refuses a call for rate limiting. The
+finding becomes `skipped` instead of `error`. The built-in `http` and `lakera`
+adapters do not raise it, so a rate-limited response from them is an `error`. An
+adapter that makes several provider calls for one event and fails after some of them
+completed can raise `EvaluationStoppedError(failure, usage)`, where `usage` is a
+`ProviderUsage` with the tokens and cost of the completed calls. The outcome follows
+`failure`, and the evaluation trace records `usage`. Verdicts and usage from injected
+adapters are revalidated. A verdict that fails validation makes the finding an
+`error`, and none of its fields are recorded; usage that fails validation is recorded
+as not reported.
+
 Default semantic limits are 8 context events, 16,000 content characters, a 2-second
-timeout, one concurrent call per project, and 60 calls per UTC minute. No score is
-represented as a probability. Increment the classifier version when changing the
-provider policy/model/configuration. Evaluate false positives and misses with real,
-reviewed customer examples before enabling production response actions.
+timeout, and 60 calls per UTC minute. The top-level `provider_concurrency` setting
+(default 1, maximum 16) sets the number of workers per project in each provider lane:
+screening, review, and conversation policies. Local rules keep one separate worker.
+Increment the classifier version when changing the provider policy/model/configuration.
+Evaluate false positives and misses with real, reviewed customer examples before
+enabling production response actions.
 
 An opt-in quality check uses `tests/runtime/fixtures/prompt_injection.json`, including
 direct/indirect attacks, ordinary requests, and quoted security discussion. Set
@@ -297,8 +330,11 @@ and retention policy as the primary volume.
 Run `python scripts/benchmark_runtime.py` for the repeatable 200-event local experiment
 (10 events/second, 20 interleaved sessions, real loopback webhook receiver). It reports
 accepted/rejected counts, expected/received notifications, latency, and detector
-coverage, including skipped semantic checks. This is not a production performance
-guarantee. Kafka/Event Grid and classifier latency must be measured with the intended
+coverage, including skipped semantic checks. `--classifier-latency-ms` adds a fake
+screening provider that answers after a fixed delay, and `--provider-concurrency`
+sets the workers per provider lane; the report then includes screening queue delay
+(p50, p95, and maximum). This is not a production performance guarantee.
+Kafka/Event Grid and classifier latency must be measured with the intended
 infrastructure. Optional smoke tests use `LITMUS_TEST_KAFKA_BOOTSTRAP` or
 `LITMUS_TEST_EVENT_GRID_ENDPOINT` plus `LITMUS_TEST_EVENT_GRID_KEY`; use disposable
 infrastructure. The Kafka integration workflow provisions a disposable broker in CI.
