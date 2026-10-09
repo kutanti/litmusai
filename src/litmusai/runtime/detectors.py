@@ -215,6 +215,36 @@ class ProviderRateLimitError(Exception):
         self.provider_called = provider_called
 
 
+class ProviderUsage(Contract):
+    """Tokens and costs of completed provider calls; ``None`` means not reported."""
+
+    reported_cost_usd: float | None = Field(default=None, ge=0, strict=True)
+    estimated_cost_usd: float | None = Field(default=None, ge=0, strict=True)
+    input_tokens: int | None = Field(default=None, ge=0, strict=True)
+    output_tokens: int | None = Field(default=None, ge=0, strict=True)
+
+
+class EvaluationStoppedError(Exception):
+    """An evaluation failed after some of its provider calls had completed.
+
+    ``usage`` totals the completed calls, so the evaluation trace still counts their
+    tokens and cost. ``failure`` decides the outcome as if it had been raised alone:
+    a :class:`ProviderRateLimitError` makes the finding skipped, anything else an error.
+    """
+
+    def __init__(self, failure: Exception, usage: ProviderUsage) -> None:
+        super().__init__("evaluation stopped after completed provider calls")
+        self.failure = failure
+        self.usage = usage
+
+
+def unwrap_failure(error: Exception) -> tuple[Exception, ProviderUsage | None]:
+    """Return the failure that decides the outcome and the usage completed before it."""
+    if isinstance(error, EvaluationStoppedError):
+        return error.failure, error.usage
+    return error, None
+
+
 def retry_after_seconds(value: str | None) -> float | None:
     """Parse a Retry-After header given in seconds or as an HTTP date."""
     if not value:

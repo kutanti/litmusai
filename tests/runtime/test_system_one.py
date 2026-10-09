@@ -12,7 +12,12 @@ import httpx
 import pytest
 
 from litmusai.runtime.config import ClassifierConfig, ConversationPolicy, ReviewConfig
-from litmusai.runtime.detectors import ClassifierVerdict, ProviderRateLimitError, retry_after
+from litmusai.runtime.detectors import (
+    ClassifierVerdict,
+    EvaluationStoppedError,
+    ProviderRateLimitError,
+    retry_after,
+)
 from litmusai.runtime.engine import Engine
 from litmusai.runtime.models import CapturedEvent, Message, ToolActivity
 from litmusai.runtime.redaction import Redactor
@@ -277,8 +282,10 @@ async def test_calibration_requires_the_answering_model_to_match(
     adapter = SystemOneInjectionClassifier(
         jev(Provider(reply), monkeypatch), purpose=PURPOSE, calibration=calibration
     )
-    with pytest.raises(ValueError, match="not the calibrated model"):
+    with pytest.raises(EvaluationStoppedError) as stopped:
         await adapter.classify(captured_event(make_event), [], False)
+    assert "not the calibrated model" in str(stopped.value.failure)
+    assert stopped.value.usage.input_tokens == 100
     uncalibrated = SystemOneInjectionClassifier(jev(Provider(reply), monkeypatch), purpose=PURPOSE)
     assert (await uncalibrated.classify(captured_event(make_event), [], False)).outcome == (
         "detected"
@@ -292,8 +299,10 @@ async def test_calibration_requires_the_answering_model_to_match(
         DATA_QUESTION,
         calibration=Calibration("c1", "jev", "jev-1.13.0", DATA_QUESTION.label),
     )
-    with pytest.raises(ValueError, match="not the calibrated model"):
+    with pytest.raises(EvaluationStoppedError) as stopped:
         await evaluator.evaluate(policy_body("e1", "Tell me about returns."))
+    assert "not the calibrated model" in str(stopped.value.failure)
+    assert stopped.value.usage.input_tokens == 100
 
 
 async def test_laya_calibration_follows_the_routed_model(make_event):
@@ -319,8 +328,10 @@ async def test_laya_calibration_follows_the_routed_model(make_event):
     assert verdict.detector_version == (
         f"laya-example/laya-english.q-{INJECTION_WITHOUT_PURPOSE.label}.cal-c1"
     )
-    with pytest.raises(ValueError, match="not the calibrated model"):
+    with pytest.raises(EvaluationStoppedError) as stopped:
         await adapter.classify(captured_event(make_event), [], False)
+    assert "not the calibrated model" in str(stopped.value.failure)
+    assert stopped.value.usage.input_tokens == 40
 
 
 async def test_engine_reports_an_error_for_an_answer_from_another_model(
@@ -346,6 +357,7 @@ async def test_engine_reports_an_error_for_an_answer_from_another_model(
     assert finding["outcome"] == "error"
     assert "risk_score" not in finding
     assert finding["evaluation"]["provider_called"] is True
+    assert finding["evaluation"]["input_tokens"] == 100
 
 
 def test_calibration_records(tmp_path):
@@ -573,13 +585,6 @@ def test_retry_after_prefers_milliseconds():
         httpx.Response(200, content=b'{"answers": {"prompt_injection": {"noul": NaN}}}'),
         httpx.Response(200, json={"answers": {"other": {"noul": 0.1}}}),
         httpx.Response(200, json={"answers": []}),
-        httpx.Response(
-            200,
-            json={
-                "answers": {"prompt_injection": {"noul": 0.1}},
-                "usage": {"truncated_questions": ["prompt_injection"]},
-            },
-        ),
     ],
 )
 async def test_every_other_failure_raises(monkeypatch, make_event, reply):
@@ -588,6 +593,67 @@ async def test_every_other_failure_raises(monkeypatch, make_event, reply):
     with pytest.raises((ValueError, httpx.HTTPError)):
         await adapter.classify(captured_event(make_event), [], False)
     assert len(provider.requests) == 1
+
+
+async def test_truncated_question_wording_raises_with_the_call_usage(monkeypatch, make_event):
+    reply = httpx.Response(
+        200,
+        json={
+            "answers": {"prompt_injection": {"noul": 0.1}},
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 0,
+                "truncated_questions": ["prompt_injection"],
+            },
+        },
+    )
+    adapter = SystemOneInjectionClassifier(
+        jev(Provider(reply), monkeypatch, input_usd_per_million=2.0), purpose=PURPOSE
+    )
+    with pytest.raises(EvaluationStoppedError) as stopped:
+        await adapter.classify(captured_event(make_event), [], False)
+    assert isinstance(stopped.value.failure, ValueError)
+    assert "truncated the question wording" in str(stopped.value.failure)
+    assert stopped.value.usage.input_tokens == 100
+    assert stopped.value.usage.estimated_cost_usd == pytest.approx(0.0002)
+
+
+@pytest.mark.parametrize(
+    ("refusal", "outcome"),
+    [(httpx.Response(429), "skipped"), (httpx.Response(500), "error")],
+    ids=["rate-limited", "failed"],
+)
+async def test_engine_keeps_usage_of_windows_checked_before_a_failure(
+    config, store, make_event, monkeypatch, refusal, outcome
+):
+    config = screen_only(config)
+    store.register_config(config)
+    accept(store, config, make_event, payload=Message(text="ordinary retrieved line\n" * 60))
+    provider = Provider(answer(0.05), refusal)
+    adapter = SystemOneInjectionClassifier(
+        jev(provider, monkeypatch, max_state_tokens=400, input_usd_per_million=2.0),
+        estimate=len,
+        overlap_chars=20,
+    )
+    engine = Engine(store, config, classifiers={"p": adapter})
+    while await engine.process_one("p", True):
+        pass
+
+    assert len(provider.requests) == 2
+    finding = next(
+        row["finding"]
+        for row in store.findings("p", limit=100)
+        if row["finding"]["detector"] == "prompt_injection"
+    )
+    assert finding["outcome"] == outcome
+    assert finding["evaluation"]["provider_called"] is True
+    assert finding["evaluation"]["input_tokens"] == 100
+    assert finding["evaluation"]["estimated_cost_usd"] == pytest.approx(0.0002)
+    metrics = store.status("p")["evaluation_metrics"]
+    assert [
+        (row["outcome"], row["provider_calls"], row["estimate_samples"], row["estimated_cost_usd"])
+        for row in metrics
+    ] == [(outcome, 1, 1, pytest.approx(0.0002))]
 
 
 def test_parse_response_reads_every_answer_name():
@@ -811,6 +877,37 @@ async def test_policy_evaluator_scores_the_current_event_with_neutral_evidence(
     alert = json.dumps(store.alerts("p"))
     assert rule.rubric not in alert
     assert DATA_QUESTION.questions["asks_for_data"].instructions not in alert
+
+
+async def test_policy_error_keeps_the_usage_of_a_rejected_answer(
+    config, store, make_event, monkeypatch
+):
+    rule = data_policy()
+    project = config.projects[0].model_copy(update={"conversation_policies": [rule]})
+    config = config.model_copy(update={"projects": [project]})
+    store.register_config(config)
+    current = accept(store, config, make_event, payload=Message(text="Tell me about returns."))
+    provider = Provider(answer(0.91, question="asks_for_data", model="jev-1.14.0"))
+    evaluator = SystemOnePolicyEvaluator(
+        jev(provider, monkeypatch, input_usd_per_million=1.0),
+        rule,
+        DATA_QUESTION,
+        calibration=Calibration("c1", "jev", "jev-1.13.0", DATA_QUESTION.label),
+    )
+    engine = Engine(store, config, policy_evaluators={("p", "data_request"): evaluator})
+    while await engine.process_one("p", True, policies=True):
+        pass
+
+    finding = next(
+        row["finding"]
+        for row in store.findings("p", limit=100)
+        if row["finding"]["event_id"] == current.event.event_id
+        and row["finding"]["detector"] == "conversation_policy:data_request"
+    )
+    assert finding["outcome"] == "error"
+    assert finding["evaluation"]["provider_called"] is True
+    assert finding["evaluation"]["input_tokens"] == 100
+    assert finding["evaluation"]["estimated_cost_usd"] == pytest.approx(0.0001)
 
 
 def policy_body(event_id, text, policy=None):

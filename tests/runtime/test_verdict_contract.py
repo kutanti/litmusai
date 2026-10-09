@@ -8,7 +8,9 @@ import pytest
 from litmusai.runtime.config import ClassifierConfig, ConversationPolicy
 from litmusai.runtime.detectors import (
     ClassifierVerdict,
+    EvaluationStoppedError,
     ProviderRateLimitError,
+    ProviderUsage,
     new_client,
     post_json,
     retry_after_seconds,
@@ -162,6 +164,70 @@ async def test_rate_limit_becomes_explicit_skip(config, store, make_event, calle
     assert finding["outcome"] == "skipped"
     assert "rate limited" in finding["reason"]
     assert finding["evaluation"]["provider_called"] is called
+
+
+@pytest.mark.parametrize(
+    ("failure", "outcome"),
+    [(ProviderRateLimitError(None, provider_called=False), "skipped"), (ValueError(), "error")],
+    ids=["rate-limited", "failed"],
+)
+async def test_stopped_evaluation_keeps_the_usage_of_completed_calls(
+    config, store, make_event, failure, outcome
+):
+    config = screen_only(config)
+    store.register_config(config)
+    accept(store, config, make_event)
+    usage = ProviderUsage(estimated_cost_usd=0.00001, input_tokens=5, output_tokens=0)
+    await run(store, config, Screen(error=EvaluationStoppedError(failure, usage)))
+    finding = injection_findings(store)[0]
+    assert finding["outcome"] == outcome
+    assert "risk_score" not in finding
+    assert finding["evaluation"]["provider_called"] is True
+    assert finding["evaluation"]["input_tokens"] == 5
+    assert finding["evaluation"]["estimated_cost_usd"] == 0.00001
+
+
+async def test_stopped_policy_evaluation_keeps_the_usage_of_completed_calls(
+    config, store, make_event
+):
+    rule = ConversationPolicy(
+        policy_id="abuse",
+        version="1",
+        category="abuse",
+        rubric="Flag abusive user messages.",
+        evaluator=ClassifierConfig(
+            endpoint="https://policy.example/evaluate",
+            api_key_env="POLICY_KEY",
+            version="policy-v1",
+        ),
+        event_types=["message.received"],
+    )
+    project = config.projects[0].model_copy(update={"conversation_policies": [rule]})
+    config = config.model_copy(update={"projects": [project]})
+    store.register_config(config)
+
+    class Stopped:
+        async def evaluate(self, body):
+            raise EvaluationStoppedError(
+                ProviderRateLimitError(None, provider_called=False),
+                ProviderUsage(input_tokens=7, output_tokens=1),
+            )
+
+    captured = accept(store, config, make_event)
+    engine = Engine(store, config, policy_evaluators={("p", "abuse"): Stopped()})
+    while await engine.process_one("p", True, policies=True):
+        pass
+    finding = next(
+        r["finding"]
+        for r in store.findings("p")
+        if r["finding"]["event_id"] == captured.event.event_id
+        and r["finding"]["detector"] == "conversation_policy:abuse"
+    )
+    assert finding["outcome"] == "skipped"
+    assert finding["evaluation"]["decision"] == "provider_rate_limited"
+    assert finding["evaluation"]["provider_called"] is True
+    assert finding["evaluation"]["input_tokens"] == 7
+    assert finding["evaluation"]["output_tokens"] == 1
 
 
 async def test_policy_rate_limit_estimate_and_version(config, store, make_event):

@@ -25,11 +25,13 @@ from litmusai.runtime.detectors import (
     InjectionClassifier,
     LakeraInjectionClassifier,
     ProviderRateLimitError,
+    ProviderUsage,
     check_risk_score,
     new_client,
     result,
     sensitive_data,
     tool_policy,
+    unwrap_failure,
     versioned,
 )
 from litmusai.runtime.models import CapturedEvent, DetectionResult, EvaluationTrace
@@ -281,8 +283,10 @@ class Engine:
             verdict: ClassifierVerdict | None = None,
             *,
             called: bool = False,
+            usage: ProviderUsage | None = None,
         ) -> DetectionResult:
             trace = None
+            measured = verdict if verdict is not None else usage
             if project.classifier:
                 trace = EvaluationTrace(
                     stage="review" if review else "screen",
@@ -296,10 +300,10 @@ class Engine:
                     gate_version=project.review.version if project.review else None,
                     provider_called=called,
                     elapsed_ms=(time.perf_counter() - started) * 1000 if called else 0,
-                    reported_cost_usd=verdict.reported_cost_usd if verdict else None,
-                    estimated_cost_usd=verdict.estimated_cost_usd if verdict else None,
-                    input_tokens=verdict.input_tokens if verdict else None,
-                    output_tokens=verdict.output_tokens if verdict else None,
+                    reported_cost_usd=measured.reported_cost_usd if measured else None,
+                    estimated_cost_usd=measured.estimated_cost_usd if measured else None,
+                    input_tokens=measured.input_tokens if measured else None,
+                    output_tokens=measured.output_tokens if measured else None,
                 )
             return finding.model_copy(
                 update={
@@ -350,6 +354,7 @@ class Engine:
             else HTTPInjectionClassifier(settings, client=self.http_client)
         )
         verdict = None
+        usage: ProviderUsage | None = None
         called = True
         try:
             verdict = await asyncio.wait_for(
@@ -376,28 +381,32 @@ class Engine:
                 evidence=["classifier examined captured untrusted content"],
                 risk_score=verdict.risk_score,
             )
-        except ProviderRateLimitError as limited:
-            called = limited.provider_called
-            finding = result(
-                captured,
-                project.policy,
-                "prompt_injection",
-                outcome="skipped",
-                reason="classifier provider rate limited; coverage degraded",
-            )
-        except Exception:
-            finding = result(
-                captured,
-                project.policy,
-                "prompt_injection",
-                outcome="error",
-                category="prompt_injection",
-                reason="classifier failed; coverage degraded",
-            )
+        except Exception as raised:
+            failure, usage = unwrap_failure(raised)
+            if isinstance(failure, ProviderRateLimitError):
+                # Calls completed before a refused one still reached the provider.
+                called = failure.provider_called or usage is not None
+                finding = result(
+                    captured,
+                    project.policy,
+                    "prompt_injection",
+                    outcome="skipped",
+                    reason="classifier provider rate limited; coverage degraded",
+                )
+            else:
+                finding = result(
+                    captured,
+                    project.policy,
+                    "prompt_injection",
+                    outcome="error",
+                    category="prompt_injection",
+                    reason="classifier failed; coverage degraded",
+                )
         return finish(
             finding.model_copy(update={"context_incomplete": incomplete}),
             verdict,
             called=called,
+            usage=usage,
         )
 
     async def _deliveries(self, destination: str) -> None:

@@ -33,7 +33,13 @@ from pydantic import TypeAdapter
 
 from litmusai.metrics.probability import apply_temperature, estimated_cost_usd
 from litmusai.runtime.config import ConversationPolicy, ProjectConfig, secret, validate_url
-from litmusai.runtime.detectors import ClassifierVerdict, ProviderRateLimitError, post_json
+from litmusai.runtime.detectors import (
+    ClassifierVerdict,
+    EvaluationStoppedError,
+    ProviderRateLimitError,
+    ProviderUsage,
+    post_json,
+)
 from litmusai.runtime.models import (
     CapturedEvent,
     Message,
@@ -707,6 +713,16 @@ def _usage_cost(
     )
 
 
+def _provider_usage(
+    backend: Backend, input_tokens: int | None, output_tokens: int | None
+) -> ProviderUsage:
+    return ProviderUsage(
+        estimated_cost_usd=_usage_cost(backend, input_tokens, output_tokens),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
+
+
 def _detector_version(models: Sequence[str], suffix: str) -> str:
     model = "+".join(dict.fromkeys(models)) or "unknown"
     return f"{model[: 199 - len(suffix)]}.{suffix}"
@@ -854,10 +870,13 @@ class SystemOneInjectionClassifier:
             if conversation:
                 state["conversation"] = conversation
             state["current"] = window
-            answers = await self.transport.ask(state, self.questions)
-            best = max(best, self._probability(answers))
-            checked += 1
-            truncated = truncated or answers.truncated
+            try:
+                answers = await self.transport.ask(state, self.questions)
+            except Exception as failure:
+                if checked:
+                    usage = _provider_usage(self.transport.backend, input_tokens, output_tokens)
+                    raise EvaluationStoppedError(failure, usage) from failure
+                raise
             models.append(answers.model)
             input_tokens = (
                 None
@@ -869,6 +888,13 @@ class SystemOneInjectionClassifier:
                 if output_tokens is None or answers.output_tokens is None
                 else output_tokens + answers.output_tokens
             )
+            try:
+                best = max(best, self._probability(answers))
+            except ValueError as failure:
+                usage = _provider_usage(self.transport.backend, input_tokens, output_tokens)
+                raise EvaluationStoppedError(failure, usage) from failure
+            checked += 1
+            truncated = truncated or answers.truncated
             if best >= self.block_threshold:
                 break
         outcome: Literal["detected", "clear", "needs_review"]
@@ -999,12 +1025,18 @@ class SystemOnePolicyEvaluator:
                 context_incomplete=True,
             )
         answers = await self.transport.ask(state, self.questions)
-        if answers.truncated_questions:
-            raise ValueError("the provider truncated the question wording")
-        probability = answers.probabilities[self.question_id]
-        if self.calibration:
-            self.calibration.check(answers)
-            probability = self.calibration.apply(probability)
+        try:
+            if answers.truncated_questions:
+                raise ValueError("the provider truncated the question wording")
+            probability = answers.probabilities[self.question_id]
+            if self.calibration:
+                self.calibration.check(answers)
+                probability = self.calibration.apply(probability)
+        except ValueError as failure:
+            usage = _provider_usage(
+                self.transport.backend, answers.input_tokens, answers.output_tokens
+            )
+            raise EvaluationStoppedError(failure, usage) from failure
         configured = policy.get("threshold")
         threshold = configured if isinstance(configured, float) else self.threshold
         detected = probability >= threshold
