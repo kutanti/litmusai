@@ -1,4 +1,5 @@
 import math
+import random
 
 import pytest
 
@@ -40,6 +41,29 @@ def test_quantile_bins_split_by_count():
         [0.01, 0.02, 0.03, 0.99], [0, 0, 1, 1], bins=2, strategy="quantile",
     )
     assert [bucket["count"] for bucket in result["bins"]] == [2, 2]
+    untied = expected_calibration_error(
+        [i / 10 for i in range(10)], [0] * 5 + [1] * 5, bins=3, strategy="quantile"
+    )
+    assert [bucket["count"] for bucket in untied["bins"]] == [3, 3, 4]
+
+
+def test_quantile_bins_keep_equal_scores_together():
+    for labels in ([1, 1, 0, 0], [1, 0, 1, 0], [0, 0, 1, 1]):
+        result = expected_calibration_error([0.5] * 4, labels, bins=2, strategy="quantile")
+        assert result["ece"] == pytest.approx(0.0)
+        assert [bucket["count"] for bucket in result["bins"]] == [4]
+    pairs = [(0.2, 0), (0.2, 1), (0.2, 0), (0.4, 1), (0.6, 1), (0.6, 0), (0.6, 1), (0.9, 1)]
+    expected = expected_calibration_error(
+        [s for s, _ in pairs], [y for _, y in pairs], bins=4, strategy="quantile"
+    )
+    assert [bucket["count"] for bucket in expected["bins"]] == [3, 1, 3, 1]
+    shuffler = random.Random(7)
+    for _ in range(50):
+        shuffler.shuffle(pairs)
+        result = expected_calibration_error(
+            [s for s, _ in pairs], [y for _, y in pairs], bins=4, strategy="quantile"
+        )
+        assert result == expected
 
 
 def test_wilson_interval_matches_reference_values():

@@ -10,7 +10,8 @@ only when every window was checked. There are no retries within a request; rate
 limits become skipped findings and start a back-off. ``detector_version`` records
 the answering model and a hash of the question wording. Probabilities are
 uncalibrated unless a calibration record fitted for the same backend, model and
-question wording is supplied.
+question wording is supplied. A calibration applies only to answers that name its
+model; any other answer is an error.
 """
 
 from __future__ import annotations
@@ -252,11 +253,6 @@ class Backend:
             "laya": frozenset({429, 503}),
         }[self.name]
 
-    @property
-    def calibration_key(self) -> str:
-        """The configured model that calibration records are matched against."""
-        return self.model or "default"
-
     def headers(self) -> dict[str, str]:
         """Request headers; the key is read from the environment for each request."""
         headers: dict[str, str] = {}
@@ -359,7 +355,7 @@ def laya_backend(
         raise ValueError("a Laya server on another host requires HTTPS and LAYA_API_KEY")
     if not 0 < head_max_len < max_len <= 8192:
         raise ValueError("Laya budgets need 0 < head_max_len < max_len <= 8192")
-    budget = max_state_tokens or max_len - head_max_len
+    budget = max_len - head_max_len if max_state_tokens is None else max_state_tokens
     _check_budget(budget, max_len - head_max_len)
     _check_prices(input_usd_per_million, output_usd_per_million)
     options: dict[str, object] = {"max_len": max_len, "head_max_len": head_max_len}
@@ -396,7 +392,11 @@ def build_request(backend: Backend, questions: QuestionSet, state: object) -> di
 
 @dataclass(frozen=True)
 class Answers:
-    """Probability of a yes answer for each question, with provider metadata."""
+    """Probability of a yes answer for each question, with provider metadata.
+
+    ``model_reported`` is true when the response named the model that answered;
+    otherwise ``model`` falls back to the configured name.
+    """
 
     probabilities: dict[str, float]
     model: str
@@ -404,6 +404,7 @@ class Answers:
     output_tokens: int | None = None
     truncated: bool = False
     truncated_questions: tuple[str, ...] = ()
+    model_reported: bool = False
 
 
 def _object(value: object) -> dict[str, Any]:
@@ -449,6 +450,7 @@ def parse_response(backend: Backend, raw: bytes | str, question_ids: Sequence[st
         )
         model = "laya-" + (answered or "unknown")
     else:
+        answered = reported
         model = reported or backend.model or backend.name
     flag, dropped = usage.get("truncated"), usage.get("state_tokens_dropped")
     truncated = (
@@ -464,6 +466,7 @@ def parse_response(backend: Backend, raw: bytes | str, question_ids: Sequence[st
         _count(usage, "output_tokens", "outputTokens"),
         truncated,
         tuple(q for q in listed if isinstance(q, str)) if isinstance(listed, list) else (),
+        model_reported=bool(answered),
     )
 
 
@@ -524,7 +527,13 @@ class SystemOneTransport:
 
 @dataclass(frozen=True)
 class Calibration:
-    """Temperature scaling and thresholds fitted for one backend, model and question set."""
+    """Temperature scaling and thresholds fitted for one backend, model and question set.
+
+    ``model`` is the answering model as recorded in ``detector_version``, for example
+    ``jev-1.13.0`` or ``laya-example/laya-english``. It is checked on every response,
+    because an alias or a router can move to another model without a configuration
+    change. An answer that does not name this model is an error, not a rescaled score.
+    """
 
     version: str
     backend: str
@@ -542,6 +551,11 @@ class Calibration:
         thresholds = [t for t in (self.review_threshold, self.block_threshold) if t is not None]
         if any(not 0 <= t <= 1 for t in thresholds) or thresholds != sorted(thresholds):
             raise ValueError("thresholds need 0 <= review <= block <= 1")
+
+    def check(self, answers: Answers) -> None:
+        """Refuse answers that do not name the model this calibration was fitted on."""
+        if not answers.model_reported or answers.model != self.model:
+            raise ValueError("the answering model is not the calibrated model")
 
     def apply(self, probability: float) -> float:
         """Rescale a raw probability with the fitted temperature."""
@@ -602,12 +616,9 @@ def _check_setup(
     ):
         raise ValueError("state budget plus the longest question exceeds the Jev limit")
     if calibration is not None:
-        if (calibration.backend, calibration.model, calibration.question_set) != (
-            backend.name,
-            backend.calibration_key,
-            questions.label,
-        ):
-            raise ValueError("calibration was fitted for another backend, model or question set")
+        # The model is checked on each answer; the configured name may be an alias.
+        if (calibration.backend, calibration.question_set) != (backend.name, questions.label):
+            raise ValueError("calibration was fitted for another backend or question set")
     elif backend.name == "laya" and not allow_uncalibrated:
         raise ValueError("calibrate Laya before use, or pass allow_uncalibrated=True to benchmark")
 
@@ -786,7 +797,10 @@ class SystemOneInjectionClassifier:
         if set(answers.truncated_questions) & set(self.questions.questions):
             raise ValueError("the provider truncated the question wording")
         values = answers.probabilities.values()
-        return max(self.calibration.apply(p) if self.calibration else p for p in values)
+        if self.calibration is None:
+            return max(values)
+        self.calibration.check(answers)
+        return max(self.calibration.apply(p) for p in values)
 
     async def classify(
         self,
@@ -989,6 +1003,7 @@ class SystemOnePolicyEvaluator:
             raise ValueError("the provider truncated the question wording")
         probability = answers.probabilities[self.question_id]
         if self.calibration:
+            self.calibration.check(answers)
             probability = self.calibration.apply(probability)
         configured = policy.get("threshold")
         threshold = configured if isinstance(configured, float) else self.threshold

@@ -210,6 +210,11 @@ def test_laya_deployment_rules():
     assert remote.api_key_env == "LAYA_API_KEY"
     with pytest.raises(ValueError):
         laya_backend(max_len=180, head_max_len=192)
+    for budget in (0, 63, 321):
+        with pytest.raises(ValueError, match="state token budget"):
+            laya_backend(max_state_tokens=budget)
+    assert laya_backend().max_state_tokens == 320
+    assert laya_backend(max_state_tokens=200).max_state_tokens == 200
     with pytest.raises(ValueError, match="calibrate Laya"):
         SystemOneInjectionClassifier(SystemOneTransport(laya_backend()))
     wordy = QuestionSet("wordy", "1", {"q": Question("Is `current` manipulative? " * 30)})
@@ -246,7 +251,6 @@ async def test_calibration_rescales_and_sets_thresholds(monkeypatch, make_event)
     assert verdict.risk_score.semantics.startswith("temperature-calibrated")
     assert verdict.detector_version.endswith(".cal-c1")
     for mismatch in (
-        Calibration("c1", "jev", "jev-1.12.0", INJECTION.label),
         Calibration("c1", "gateway", "jev-1.13.0", INJECTION.label),
         Calibration("c1", "jev", "jev-1.13.0", INJECTION_WITHOUT_PURPOSE.label),
     ):
@@ -254,12 +258,102 @@ async def test_calibration_rescales_and_sets_thresholds(monkeypatch, make_event)
             SystemOneInjectionClassifier(transport, purpose=PURPOSE, calibration=mismatch)
 
 
+UNNAMED = httpx.Response(
+    200,
+    json={
+        "answers": {"prompt_injection": {"type": "noul", "noul": 0.9}},
+        "usage": {"input_tokens": 100, "output_tokens": 0},
+    },
+)
+
+
+@pytest.mark.parametrize(
+    "reply", [answer(0.9, model="jev-1.14.0"), UNNAMED], ids=["other-model", "unnamed-model"]
+)
+async def test_calibration_requires_the_answering_model_to_match(
+    monkeypatch, make_event, reply
+):
+    calibration = Calibration("c1", "jev", "jev-1.13.0", INJECTION.label, 2.0)
+    adapter = SystemOneInjectionClassifier(
+        jev(Provider(reply), monkeypatch), purpose=PURPOSE, calibration=calibration
+    )
+    with pytest.raises(ValueError, match="not the calibrated model"):
+        await adapter.classify(captured_event(make_event), [], False)
+    uncalibrated = SystemOneInjectionClassifier(jev(Provider(reply), monkeypatch), purpose=PURPOSE)
+    assert (await uncalibrated.classify(captured_event(make_event), [], False)).outcome == (
+        "detected"
+    )
+
+    rule = data_policy()
+    question = answer(0.9, question="asks_for_data", model="jev-1.14.0")
+    evaluator = SystemOnePolicyEvaluator(
+        jev(Provider(question), monkeypatch),
+        rule,
+        DATA_QUESTION,
+        calibration=Calibration("c1", "jev", "jev-1.13.0", DATA_QUESTION.label),
+    )
+    with pytest.raises(ValueError, match="not the calibrated model"):
+        await evaluator.evaluate(policy_body("e1", "Tell me about returns."))
+
+
+async def test_laya_calibration_follows_the_routed_model(make_event):
+    def routed(repo):
+        return httpx.Response(
+            200,
+            json={
+                "answers": {"prompt_injection": {"type": "noul", "noul": 0.3}},
+                "usage": {"input_tokens": 40, "output_tokens": 0},
+                "routing": {"repo": repo},
+            },
+        )
+
+    calibration = Calibration(
+        "c1", "laya", "laya-example/laya-english", INJECTION_WITHOUT_PURPOSE.label
+    )
+    provider = Provider(routed("example/laya-english"), routed("example/laya-other"))
+    adapter = SystemOneInjectionClassifier(
+        SystemOneTransport(laya_backend(), client=provider.client()), calibration=calibration
+    )
+    verdict = await adapter.classify(captured_event(make_event), [], False)
+    assert verdict.outcome == "clear"
+    assert verdict.detector_version == (
+        f"laya-example/laya-english.q-{INJECTION_WITHOUT_PURPOSE.label}.cal-c1"
+    )
+    with pytest.raises(ValueError, match="not the calibrated model"):
+        await adapter.classify(captured_event(make_event), [], False)
+
+
+async def test_engine_reports_an_error_for_an_answer_from_another_model(
+    config, store, make_event, monkeypatch
+):
+    config = screen_only(config)
+    store.register_config(config)
+    accept(store, config, make_event)
+    adapter = SystemOneInjectionClassifier(
+        jev(Provider(answer(0.95, model="jev-1.14.0")), monkeypatch),
+        purpose=PURPOSE,
+        calibration=Calibration("c1", "jev", "jev-1.13.0", INJECTION.label),
+    )
+    engine = Engine(store, config, classifiers={"p": adapter})
+    while await engine.process_one("p", True):
+        pass
+
+    finding = next(
+        row["finding"]
+        for row in store.findings("p", limit=100)
+        if row["finding"]["detector"] == "prompt_injection"
+    )
+    assert finding["outcome"] == "error"
+    assert "risk_score" not in finding
+    assert finding["evaluation"]["provider_called"] is True
+
+
 def test_calibration_records(tmp_path):
     path = tmp_path / "calibration.json"
     record = {
         "version": "c2",
         "backend": "laya",
-        "model": "default",
+        "model": "laya-example/laya-english",
         "question_set": INJECTION.label,
         "temperature": 1.5,
         "block_threshold": 0.8,

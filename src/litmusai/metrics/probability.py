@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import math
 import random
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Iterable, Sequence
+from itertools import groupby
+from operator import itemgetter
 from statistics import NormalDist
 from typing import Any
 
@@ -193,7 +195,9 @@ def expected_calibration_error(
 
     ``uniform`` uses equal-width probability bins; ``quantile`` uses bins with
     roughly equal numbers of examples, which is steadier when scores cluster
-    near 0 or 1. The maximum per-bin gap is reported alongside.
+    near 0 or 1. Equal scores always share a quantile bin, so the result does not
+    depend on the order of tied examples. The maximum per-bin gap is reported
+    alongside.
     """
     if bins < 1:
         raise ValueError("bins must be at least 1")
@@ -202,16 +206,19 @@ def expected_calibration_error(
     pairs = _pairs(scores, labels)
     if not pairs:
         return {"ece": None, "max_calibration_error": None, "bins": []}
+    buckets: list[list[tuple[float, bool]]] = [[] for _ in range(bins)]
     if strategy == "uniform":
-        buckets: list[list[tuple[float, bool]]] = [[] for _ in range(bins)]
         for score, label in pairs:
             buckets[min(int(score * bins), bins - 1)].append((score, label))
     else:
-        ordered = sorted(pairs, key=lambda pair: pair[0])
-        buckets = [
-            ordered[len(ordered) * i // bins: len(ordered) * (i + 1) // bins]
-            for i in range(bins)
-        ]
+        # Positions where an equal-count split would start a new bin. A run of equal
+        # scores goes whole into the bin where it starts instead of being split.
+        edges = [len(pairs) * i // bins for i in range(1, bins)]
+        position = 0
+        for _, group in groupby(sorted(pairs, key=itemgetter(0)), key=itemgetter(0)):
+            tied = list(group)
+            buckets[bisect_right(edges, position)].extend(tied)
+            position += len(tied)
     total = len(pairs)
     ece = 0.0
     worst = 0.0
