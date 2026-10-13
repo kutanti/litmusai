@@ -13,6 +13,23 @@ Start with a Python function and local assertions; connect a model or an existin
 
 [Quick start](#quick-start) · [Runtime monitoring](#runtime-monitoring) · [Agent adapters](docs/adapters.md) · [Usage guide](docs/usage.md) · [Labeled metrics](docs/labeled-metrics.md) · [Feature validation](docs/feature-validation.md)
 
+## Who LitmusAI is for
+
+LitmusAI is for small teams shipping Python AI agents who need to know whether a prompt, model, or tool change will regress production behavior. The core outcome is simple: **catch agent regressions before they reach users, with tests that run locally and in CI**.
+
+It is local-first and provider-agnostic. Keep evaluation data in your repository, use the same suite from Python or the CLI, and make quality, cost, latency, and consistency part of a pull request. Runtime monitoring is an opt-in secondary feature for teams that also need alerts about live conversations and tool activity.
+
+### Why use LitmusAI?
+
+| If you currently use... | LitmusAI adds... |
+|---|---|
+| A hosted observability platform | Local evaluation data and CI regression gates without requiring a hosted dashboard |
+| A small assertion library | Repeated runs, baselines, cost and latency checks, reports, and GitHub Actions integration |
+| A security scanner | Behavioral tests for answers and tools alongside safety and memory-poisoning checks |
+| Custom evaluation scripts | Reusable suites, adapters, versioned results, exports, and a standard pull-request workflow |
+
+LitmusAI is not a replacement for every observability or security platform. Use the tool that fits your data, scale, and operational requirements; use LitmusAI when a lightweight, inspectable evaluation workflow is the missing piece.
+
 | What you need to check | What LitmusAI provides |
 |---|---|
 | Does the agent return the right answer? | Python and YAML suites, string/number/JSON assertions, semantic checks, and LLM grading |
@@ -75,6 +92,8 @@ results.save("results.json")
 ```
 
 Expected result: **2/2 cases pass**, and `results.json` contains both responses, scores, and timings. This local function supplies no usage metadata: token counters are zero and cost is unknown. Return `AgentResponse(output=..., cost=0.0)` to explicitly declare a free run.
+
+For the shortest path from local test to pull request, follow the [first 15 minutes guide](docs/first-15-minutes.md). It creates a small suite, an HTML report, a baseline gate, and a GitHub Actions check without requiring a model API key.
 
 To call an OpenAI-compatible chat endpoint, replace `agent` with:
 
@@ -442,6 +461,16 @@ The action installs LitmusAI from its selected revision and fails when the evalu
 The local example needs no provider credentials or extra dependencies. For your own agent, install any additional dependencies before the evaluation step and pass its credentials through that step's `env`. If installing packages in an earlier step, use `actions/setup-python` with the same version as the action's `python-version` input (default `3.11`).
 
 To enable comments on pull requests with write access, set `post-comment: "true"` and grant `pull-requests: write`. See [action.yml](action.yml) for baseline, budget, concurrency, and other inputs.
+
+## Example recipes
+
+The [example recipes](docs/example-recipes.md) show the three workflows LitmusAI is designed to make practical:
+
+- customer-support regression tests
+- RAG answer and citation checks
+- tool-use safety and cost regression
+
+Each recipe includes a representative suite, the failure it is intended to catch, and the CI gate to add after the local run works.
 
 ## Built-in suites
 
