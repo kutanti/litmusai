@@ -10,7 +10,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote
 
 from litmusai.runtime.config import (
@@ -25,6 +25,8 @@ from litmusai.runtime.models import (
     CapturedEvent,
     CloudEvent,
     DetectionResult,
+    EvaluationTrace,
+    PolicyEvaluationTrace,
     ThreatAlert,
     ToolActivity,
     ToolUsageEvidence,
@@ -94,9 +96,52 @@ CREATE TABLE IF NOT EXISTS evaluation_metrics (
   project TEXT, stage TEXT, decision TEXT, outcome TEXT, observations INTEGER,
   provider_calls INTEGER, cost_samples INTEGER, reported_cost_usd REAL, elapsed_ms REAL,
   PRIMARY KEY(project,stage,decision,outcome));
+CREATE TABLE IF NOT EXISTS evaluation_estimates (
+  project TEXT, stage TEXT, decision TEXT, outcome TEXT, estimate_samples INTEGER,
+  estimated_cost_usd REAL, PRIMARY KEY(project,stage,decision,outcome));
 CREATE TABLE IF NOT EXISTS metrics (
   project TEXT, name TEXT, value INTEGER, PRIMARY KEY(project,name));
 """
+
+SchemaVersion = Literal["1.0", "1.1", "1.2", "1.3", "1.4"]
+_OPTIONAL = ("usage", "evaluation", "risk_score")
+_OPTIONAL_TRACE = ("review_version", "gate_version", "estimated_cost_usd")
+
+
+def omitted_fields(item: DetectionResult | ThreatAlert) -> dict[str, Any]:
+    """Omit absent optional fields so payloads of earlier schema versions stay identical."""
+    omitted: dict[str, Any] = {name: True for name in _OPTIONAL if getattr(item, name) is None}
+    if item.evaluation is not None:
+        trace = {
+            name: True
+            for name in _OPTIONAL_TRACE
+            if name in type(item.evaluation).model_fields
+            and getattr(item.evaluation, name) is None
+        }
+        if trace:
+            omitted["evaluation"] = trace
+    return omitted
+
+
+def alert_schema_version(finding: DetectionResult) -> SchemaVersion:
+    """Return the earliest alert data schema that describes every field present.
+
+    1.4 covers screen-only evaluation traces, estimated cost, and classifier risk scores.
+    """
+    trace = finding.evaluation
+    if (
+        trace is not None
+        and (
+            trace.estimated_cost_usd is not None
+            or (isinstance(trace, EvaluationTrace) and trace.review_version is None)
+        )
+    ) or (finding.risk_score is not None and not isinstance(trace, PolicyEvaluationTrace)):
+        return "1.4"
+    if isinstance(trace, PolicyEvaluationTrace):
+        return "1.3"
+    if trace is not None:
+        return "1.2"
+    return "1.1" if finding.usage is not None else "1.0"
 
 
 class Store:
@@ -595,13 +640,7 @@ class Store:
                         new_id(),
                         job["project"],
                         job["id"],
-                        finding.model_dump_json(
-                            exclude={
-                                name
-                                for name in ("usage", "evaluation", "risk_score")
-                                if getattr(finding, name) is None
-                            },
-                        ),
+                        finding.model_dump_json(exclude=omitted_fields(finding)),
                         int(suppressed),
                         now,
                         finding.detector,
@@ -629,6 +668,20 @@ class Store:
                             trace.elapsed_ms,
                         ),
                     )
+                    if trace.estimated_cost_usd is not None:
+                        self.db.execute(
+                            "INSERT INTO evaluation_estimates VALUES (?,?,?,?,1,?) "
+                            "ON CONFLICT(project,stage,decision,outcome) DO UPDATE SET "
+                            "estimate_samples=estimate_samples+1,"
+                            "estimated_cost_usd=estimated_cost_usd+excluded.estimated_cost_usd",
+                            (
+                                job["project"],
+                                trace.stage,
+                                trace.decision,
+                                finding.outcome,
+                                trace.estimated_cost_usd,
+                            ),
+                        )
             if follow_up:
                 self.db.execute(
                     "INSERT INTO jobs (id,project,event,detector,config,created) "
@@ -697,13 +750,7 @@ class Store:
             )
         )[-50:]
         alert = ThreatAlert(
-            schema_version="1.3"
-            if finding.evaluation and finding.evaluation.stage == "policy"
-            else "1.2"
-            if finding.evaluation
-            else "1.1"
-            if finding.usage
-            else "1.0",
+            schema_version=alert_schema_version(finding),
             alert_id=previous.alert_id if previous else new_id(),
             revision=previous.revision + 1 if previous else 1,
             project_id=event.project_id,
@@ -741,13 +788,7 @@ class Store:
                 alert.alert_id,
                 episode,
                 alert.revision,
-                alert.model_dump_json(
-                    exclude={
-                        name
-                        for name in ("usage", "evaluation", "risk_score")
-                        if getattr(alert, name) is None
-                    }
-                ),
+                alert.model_dump_json(exclude=omitted_fields(alert)),
                 now,
             ),
         )
@@ -758,15 +799,7 @@ class Store:
                 event.project_id,
                 alert.alert_id,
                 alert.revision,
-                envelope.model_dump_json(
-                    exclude={
-                        "data": {
-                            name
-                            for name in ("usage", "evaluation", "risk_score")
-                            if getattr(finding, name) is None
-                        }
-                    },
-                ),
+                envelope.model_dump_json(exclude={"data": omitted_fields(alert)}),
                 now,
                 captured.received_at.timestamp(),
             ),
@@ -918,8 +951,13 @@ class Store:
             evaluations = [
                 dict(row)
                 for row in self.db.execute(
-                    "SELECT stage,decision,outcome,observations,provider_calls,cost_samples,"
-                    "reported_cost_usd,elapsed_ms FROM evaluation_metrics WHERE project=?",
+                    "SELECT m.stage,m.decision,m.outcome,m.observations,m.provider_calls,"
+                    "m.cost_samples,m.reported_cost_usd,"
+                    "COALESCE(e.estimate_samples,0) AS estimate_samples,"
+                    "COALESCE(e.estimated_cost_usd,0) AS estimated_cost_usd,m.elapsed_ms "
+                    "FROM evaluation_metrics m LEFT JOIN evaluation_estimates e "
+                    "ON e.project=m.project AND e.stage=m.stage AND e.decision=m.decision "
+                    "AND e.outcome=m.outcome WHERE m.project=?",
                     (project,),
                 )
             ]

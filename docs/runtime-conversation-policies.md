@@ -131,10 +131,11 @@ boolean verdict. Alerts include the value, threshold, semantics, and score versi
 ## Operational and compatibility boundaries
 
 Applicability and evidence prerequisites run before spending provider budget.
-Each policy has a persisted per-project/per-policy minute budget. One conversation
-policy worker per project runs separately from local rules, injection screening,
-conditional injection review, and delivery. A slow rubric can delay other rubrics
-in that project; measure this lane under the intended load.
+Each policy has a persisted per-project/per-policy minute budget. Each project runs
+`provider_concurrency` conversation policy workers (default 1) separately from local
+rules, injection screening, conditional injection review, and delivery. A slow rubric
+can delay other rubrics in that project once every worker is busy; measure this lane
+under the intended load.
 
 Context is bounded and scoped to the project, agent, deployment, and session.
 Truncation and known capture gaps prevent a clear result from certifying complete
@@ -143,16 +144,22 @@ unbounded learned behavior state. Current input or required grounding that does
 not fit the context produces `insufficient_context` before an external call.
 
 Timeouts, malformed replies, invalid evidence, and provider failures become
-`error`. Budget exhaustion becomes `skipped`. `needs_review` becomes
-`insufficient_context`; these generic policies do not automatically enter the
-prompt-injection cascade. No incomplete/error result becomes clear or a positive
-alert without valid evidence. Use status/findings to monitor coverage gaps.
+`error`. Budget exhaustion becomes `skipped`. An injected evaluator that raises
+`ProviderRateLimitError` also produces `skipped`, with `evaluation.decision:
+"provider_rate_limited"`; a configured `http` evaluator reports a rate-limited
+response as `error`. Usage that an evaluator reports for calls completed before a
+failure stays in the trace. `needs_review` becomes `insufficient_context`; these
+generic policies do not automatically enter the prompt-injection cascade. No
+incomplete/error result becomes clear or a positive alert without valid evidence.
+Use status/findings to monitor coverage gaps.
 
 Policy alerts use `data.schema_version: "1.3"`, the configured category, cited
 source IDs, and `evaluation.stage: "policy"`. Optional `risk_score` is an object
-containing value and interpretation. Earlier payloads remain unchanged when these
-policies are absent. Upgrade strict consumers before enabling them. Existing
-namespaced CloudEvent types and delivery IDs/retries are retained.
+containing value and interpretation. A policy alert whose trace includes
+`estimated_cost_usd` uses `"1.4"`; that field is omitted when absent, and the alert
+stays 1.3. Earlier payloads remain unchanged when these policies are absent. Upgrade
+strict consumers before enabling them. Existing namespaced CloudEvent types and
+delivery IDs/retries are retained.
 
 The collector upgrades runtime database format 1 to format 2 in place using
 additive tables/indexes; accepted events, saved configurations, and pending jobs

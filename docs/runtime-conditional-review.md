@@ -81,15 +81,40 @@ zero means measured zero. Litmus does not infer prices or invent confidence scor
 Findings record the selection reason, stage, screening/evaluator/gate versions,
 provider-call flag, elapsed time, and optional reported cost/tokens. Alerts from
 this configured pipeline have `data.schema_version: "1.2"` and an `evaluation`
-object. Existing unconfigured alerts retain their earlier payloads; upgrade strict
-consumers before enabling this feature. All transports use the same saved envelope.
+object. All transports use the same saved envelope.
+
+Data schema 1.4 adds three optional parts, and an alert uses `"1.4"` when any of
+them is present:
+
+- A screen-only trace. Prompt-injection findings from a project with a `classifier`
+  and no `review` carry an `evaluation` object with `stage: "screen"`,
+  `decision: "review_not_configured"`, and `screen_version`; `review_version` and
+  `gate_version` are omitted. Earlier collectors attached no `evaluation` object to
+  these alerts, which used schema 1.0.
+- `evaluation.estimated_cost_usd`, calculated by an adapter from token counts and an
+  operator-supplied price. It is omitted when absent and is never added to
+  `reported_cost_usd`.
+- A classifier `risk_score` object with `value`, `threshold`, `semantics`, and
+  `version`, described in the [runtime guide](runtime-threat-alerting.md#prompt-injection).
+
+Other alerts keep their earlier version and payload. Upgrade strict consumers to
+accept 1.2 before enabling this feature, and to accept 1.4 before upgrading a
+collector that has a classifier configured.
 
 `GET /v1/status` exposes cumulative, project-scoped `evaluation_metrics` grouped by
 stage, decision, and outcome. `provider_calls` and `cost_samples` make missing cost
 coverage explicit; `reported_cost_usd` is only the sum of reported samples, not total
-billing. Metrics cover committed findings and exclude calls lost before commit.
+billing. `estimate_samples` and `estimated_cost_usd` count and sum estimated costs
+separately. Metrics cover committed findings and exclude calls lost before commit.
 They persist across restarts. Per-finding elapsed time measures the evaluation call
 path; existing publication latency includes queue and delivery time.
+
+An adapter that fails after some of its provider calls completed can report their
+usage with the failure, as described in the
+[runtime guide](runtime-threat-alerting.md#prompt-injection). The finding is still
+`error`, or `skipped` for a rate limit, and its trace records those tokens and costs.
+A timeout discards that usage, so metrics undercount evaluations that time out after
+some calls completed.
 
 Before production use, evaluate customer-relevant benign and risky fixtures and
 report first-stage misses, audit discoveries, escalation rate, provider cost

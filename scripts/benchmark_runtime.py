@@ -1,8 +1,15 @@
-"""Local collector-to-HTTP-receiver experiment; no agents, vendors, or cloud topics invoked."""
+"""Local collector-to-HTTP-receiver experiment; no agents, vendors, or cloud topics invoked.
+
+``--classifier-latency-ms`` injects a fake screen provider that waits for a fixed
+time and answers clear, so queue delay under provider latency can be measured
+without calling a real vendor. ``--provider-concurrency`` sets the number of
+workers per provider lane.
+"""
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import math
 import os
@@ -17,11 +24,69 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from litmusai.runtime.config import ProjectConfig, RuntimeConfig, ThreatPolicy, WebhookDestination
-from litmusai.runtime.models import Message, RuntimeEvent, ToolActivity, new_id
+from litmusai.runtime.config import (
+    ClassifierConfig,
+    ProjectConfig,
+    RuntimeConfig,
+    ThreatPolicy,
+    WebhookDestination,
+)
+from litmusai.runtime.detectors import ClassifierVerdict
+from litmusai.runtime.models import CapturedEvent, Message, RuntimeEvent, ToolActivity, new_id
 from litmusai.runtime.publishers import verify_webhook
 from litmusai.runtime.service import create_app
 from litmusai.runtime.store import Store
+
+
+class FakeProvider:
+    """Stand-in screen provider: fixed latency, always clear, records when each call starts."""
+
+    def __init__(self, latency_seconds: float) -> None:
+        self.latency_seconds = latency_seconds
+        self.started: dict[str, float] = {}
+
+    async def classify(
+        self, captured: CapturedEvent, context: list[CapturedEvent], incomplete: bool
+    ) -> ClassifierVerdict:
+        self.started[captured.event.event_id] = time.time()
+        await asyncio.sleep(self.latency_seconds)
+        return ClassifierVerdict(outcome="clear", reason="fake provider")
+
+
+def nearest_rank(values: list[float], fraction: float) -> float | None:
+    """Nearest-rank percentile, matching the receipt percentile below."""
+    ordered = sorted(values)
+    return ordered[math.ceil(len(ordered) * fraction) - 1] if ordered else None
+
+
+def screen_timings(store: Store, project: str, started: dict[str, float]) -> dict[str, object]:
+    """Queue delay is job creation to provider call start; completion adds provider latency."""
+    with store._lock:
+        rows = store.db.execute(
+            "SELECT j.event, j.created, f.created, f.outcome FROM jobs j "
+            "JOIN findings f ON f.job = j.id "
+            "WHERE j.project=? AND j.detector='prompt_injection'",
+            (project,),
+        ).fetchall()
+        pending = store.db.execute(
+            "SELECT COUNT(*) FROM jobs WHERE project=? AND detector='prompt_injection' "
+            "AND state!='done'",
+            (project,),
+        ).fetchone()[0]
+    queue = [started[row[0]] - row[1] for row in rows if row[0] in started]
+    completion = [row[2] - row[1] for row in rows if row[0] in started]
+    outcomes: dict[str, int] = {}
+    for row in rows:
+        outcomes[row[3]] = outcomes.get(row[3], 0) + 1
+    return {
+        "provider_calls": len(started),
+        "screen_jobs_pending": pending,
+        "screen_outcomes": outcomes,
+        "queue_delay_p50_seconds": nearest_rank(queue, 0.50),
+        "queue_delay_p95_seconds": nearest_rank(queue, 0.95),
+        "queue_delay_max_seconds": max(queue) if queue else None,
+        "screen_completion_p95_seconds": nearest_rank(completion, 0.95),
+    }
 
 
 def main() -> None:
@@ -31,9 +96,23 @@ def main() -> None:
     parser.add_argument("--rate", type=float, default=10)
     parser.add_argument("--sessions", type=int, default=20)
     parser.add_argument("--output", default=".litmus/runtime-benchmark.json")
+    parser.add_argument(
+        "--classifier-latency-ms",
+        type=float,
+        default=0,
+        help="inject a fake screen provider with this latency; 0 disables screening",
+    )
+    parser.add_argument("--provider-concurrency", type=int, default=1)
     args = parser.parse_args()
     if min(args.events, args.rate, args.sessions) <= 0:
         parser.error("events, rate, and sessions must be positive")
+    if not 0 <= args.classifier_latency_ms <= 30000:
+        parser.error("classifier latency must be between 0 and 30000 ms")
+    if not 1 <= args.provider_concurrency <= 16:
+        parser.error("provider concurrency must be between 1 and 16")
+    provider = (
+        FakeProvider(args.classifier_latency_ms / 1000) if args.classifier_latency_ms else None
+    )
     api_key, signing_key = uuid4().hex, uuid4().hex
     os.environ["LITMUS_BENCHMARK_API_KEY"] = api_key
     os.environ["LITMUS_BENCHMARK_SIGNING_KEY"] = signing_key
@@ -76,8 +155,18 @@ def main() -> None:
                         policy=ThreatPolicy(
                             allowed_tools=["send_email"], allowed_destinations=["allowed.example"]
                         ),
+                        classifier=ClassifierConfig(
+                            endpoint="https://fake-provider.invalid/screen",
+                            api_key_env="LITMUS_BENCHMARK_API_KEY",
+                            version="fake-provider",
+                            timeout_seconds=30,
+                            calls_per_minute=10000,
+                        )
+                        if provider
+                        else None,
                     )
                 ],
+                provider_concurrency=args.provider_concurrency,
                 destinations=[
                     WebhookDestination(
                         destination_id="receiver",
@@ -90,7 +179,8 @@ def main() -> None:
             )
             store = Store(config.database)
             try:
-                with TestClient(create_app(config, store=store)) as api:
+                classifiers = {"benchmark": provider} if provider else None
+                with TestClient(create_app(config, store=store, classifiers=classifiers)) as api:
                     started = time.monotonic()
                     for index in range(args.events):
                         time.sleep(max(0, started + index / args.rate - time.monotonic()))
@@ -132,6 +222,19 @@ def main() -> None:
                     deadline = time.monotonic() + 10
                     while len(receipts) < expected and time.monotonic() < deadline:
                         time.sleep(0.05)
+                    if provider:
+                        calls = sum(1 for index in range(args.events) if index % 4 == 0)
+                        drain = calls * provider.latency_seconds / args.provider_concurrency
+                        deadline = time.monotonic() + 10 + 2 * drain
+                        while time.monotonic() < deadline:
+                            with store._lock:
+                                pending = store.db.execute(
+                                    "SELECT COUNT(*) FROM jobs WHERE project='benchmark' "
+                                    "AND detector='prompt_injection' AND state!='done'"
+                                ).fetchone()[0]
+                            if not pending:
+                                break
+                            time.sleep(0.05)
                     # The receiver observes the event just before the publisher records its ack.
                     deadline = time.monotonic() + 2
                     while time.monotonic() < deadline:
@@ -149,7 +252,13 @@ def main() -> None:
                     "storage": "temporary SQLite WAL, synchronous FULL",
                     "transport": "loopback HTTPS-exempt webhook",
                     "ingestion": "in-process ASGI TestClient; receiver uses real loopback HTTP",
-                    "classifier": "disabled; semantic latency/quality not measured",
+                    "classifier": (
+                        f"fake provider, {args.classifier_latency_ms:g} ms, always clear; "
+                        "quality not measured"
+                        if provider
+                        else "disabled; semantic latency/quality not measured"
+                    ),
+                    "provider_concurrency": args.provider_concurrency,
                     "event_count": args.events,
                     "offered_events_per_second": args.rate,
                     "interleaved_sessions": args.sessions,
@@ -170,6 +279,8 @@ def main() -> None:
                     "receipt_max_seconds": max(values) if values else None,
                     "status": status,
                 }
+                if provider:
+                    report.update(screen_timings(store, "benchmark", provider.started))
                 output = Path(args.output)
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_text(json.dumps(report, indent=2), encoding="utf-8")

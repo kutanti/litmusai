@@ -8,10 +8,19 @@ import time
 from collections.abc import Callable
 from typing import Annotated, Protocol
 
+import httpx
 from pydantic import Field
 
 from litmusai.runtime.config import ConversationPolicy
-from litmusai.runtime.detectors import ClassifierVerdict, HTTPInjectionClassifier, result
+from litmusai.runtime.detectors import (
+    HTTPInjectionClassifier,
+    ProviderRateLimitError,
+    ProviderUsage,
+    VerdictBase,
+    result,
+    unwrap_failure,
+    versioned,
+)
 from litmusai.runtime.models import (
     CapturedEvent,
     DetectionResult,
@@ -22,7 +31,7 @@ from litmusai.runtime.models import (
 )
 
 
-class PolicyVerdict(ClassifierVerdict):
+class PolicyVerdict(VerdictBase):
     """Positive decisions must cite supplied evidence including the current activity."""
 
     source_event_ids: list[Identifier] = Field(default_factory=list, max_length=50)
@@ -56,18 +65,22 @@ async def evaluate_policy(
     policy: ConversationPolicy,
     reserve_budget: Callable[[], bool],
     evaluator: PolicyEvaluator | None = None,
+    *,
+    client: httpx.AsyncClient | None = None,
 ) -> DetectionResult:
     """Apply prerequisites and thresholds without treating missing evidence as a pass."""
     event = captured.event
     started = time.perf_counter()
     called = False
     verdict: PolicyVerdict | None = None
+    usage: ProviderUsage | None = None
     decision = "policy_evaluation"
     sources: list[str] = [event.event_id]
     evidence: list[str] = []
     score: RiskScore | None = None
 
     def finish(outcome: str, reason: str) -> DetectionResult:
+        measured = verdict if verdict is not None else usage
         return result(
             captured,
             policy,
@@ -75,7 +88,9 @@ async def evaluate_policy(
             outcome=outcome,
             reason=reason,
             category=policy.category,
-            detector_version=policy.evaluator.version,
+            detector_version=versioned(
+                policy.evaluator.version, verdict.detector_version if verdict else None
+            ),
             evidence=evidence,
         ).model_copy(
             update={
@@ -87,9 +102,10 @@ async def evaluate_policy(
                     evaluator_version=policy.evaluator.version,
                     provider_called=called,
                     elapsed_ms=(time.perf_counter() - started) * 1000 if called else 0,
-                    reported_cost_usd=verdict.reported_cost_usd if verdict else None,
-                    input_tokens=verdict.input_tokens if verdict else None,
-                    output_tokens=verdict.output_tokens if verdict else None,
+                    reported_cost_usd=measured.reported_cost_usd if measured else None,
+                    estimated_cost_usd=measured.estimated_cost_usd if measured else None,
+                    input_tokens=measured.input_tokens if measured else None,
+                    output_tokens=measured.output_tokens if measured else None,
                 ),
             }
         )
@@ -163,12 +179,12 @@ async def evaluate_policy(
     }
     try:
         called = True
-        adapter = evaluator or HTTPPolicyEvaluator(policy.evaluator)
-        verdict = await asyncio.wait_for(
+        adapter = evaluator or HTTPPolicyEvaluator(policy.evaluator, client=client)
+        returned = await asyncio.wait_for(
             adapter.evaluate(body), timeout=policy.evaluator.timeout_seconds
         )
         # Revalidate injected adapters as well as the HTTP response.
-        verdict = PolicyVerdict.model_validate(verdict.model_dump())
+        verdict = PolicyVerdict.model_validate(returned.model_dump())
         incomplete = incomplete or verdict.context_incomplete
         outcome = verdict.outcome
         if outcome == "needs_review":
@@ -198,7 +214,12 @@ async def evaluate_policy(
         sources = list(dict.fromkeys(verdict.source_event_ids)) or sources
         evidence = verdict.evidence
         return finish(outcome, verdict.reason)
-    except Exception:
+    except Exception as raised:
+        failure, usage = unwrap_failure(raised)
+        if isinstance(failure, ProviderRateLimitError):
+            called = failure.provider_called or usage is not None
+            decision = "provider_rate_limited"
+            return finish("skipped", "conversation evaluator rate limited; coverage degraded")
         return finish(
             "error", "conversation evaluator failed or returned invalid evidence; coverage degraded"
         )
